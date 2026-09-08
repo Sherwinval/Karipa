@@ -1,0 +1,70 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id           BigInt     @id @default(autoincrement())
+  name         String
+  email        String     @unique
+  passwordHash String     @map("password_hash")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  activities   Activity[]
+  routes       Route[]
+
+  @@map("users")
+}
+
+model Activity {
+  id           BigInt   @id @default(autoincrement())
+  userId       BigInt   @map("user_id")
+  activityType String   @map("activity_type")
+  distance     Decimal  @db.Decimal(10, 2)
+  duration     Int
+  pace         Decimal? @db.Decimal(10, 2)
+  speed        Decimal? @db.Decimal(10, 2)
+  averageHeartRate Integer? @map("average_heart_rate")
+  maximumHeartRate Integer? @map("maximum_heart_rate")
+  calories     Decimal? @db.Decimal(10, 2)
+  startedAt    DateTime @map("started_at")
+  completedAt  DateTime @map("completed_at")
+  routeData    Json?    @map("route_data")
+  gpsData      Json?    @map("gps_data")
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  splits       ActivitySplit[]
+
+  @@index([userId])
+  @@map("activities")
+}
+
+model Route {
+  id           BigInt   @id @default(autoincrement())
+  userId       BigInt?  @map("user_id")
+  activityType String   @map("activity_type")
+  distance     Decimal  @db.Decimal(10, 2)
+  duration     Int?
+  score        Decimal? @db.Decimal(5, 2)
+  routeData    Json     @map("route_data")
+  createdAt    DateTime @default(now()) @map("created_at")
+  user         User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("routes")
+}
+
+model ActivitySplit {
+  id             BigInt   @id @default(autoincrement())
+  activityId     BigInt   @map("activity_id")
+  kilometer      Int
+  timeSeconds    Int      @map("time_seconds")
+  activity       Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@unique([activityId, kilometer])
+  @@index([activityId])
+  @@map("activity_splits")
+}
