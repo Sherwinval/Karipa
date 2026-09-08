@@ -28,8 +28,8 @@ model Activity {
   duration     Int
   pace         Decimal? @db.Decimal(10, 2)
   speed        Decimal? @db.Decimal(10, 2)
-  averageHeartRate Integer? @map("average_heart_rate")
-  maximumHeartRate Integer? @map("maximum_heart_rate")
+  averageHeartRate Int?     @map("average_heart_rate")
+  maximumHeartRate Int?     @map("maximum_heart_rate")
   calories     Decimal? @db.Decimal(10, 2)
   startedAt    DateTime @map("started_at")
   completedAt  DateTime @map("completed_at")
