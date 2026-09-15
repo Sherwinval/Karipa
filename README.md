@@ -4,26 +4,26 @@ PathCraft is a capstone project that generates personalized outdoor routes for w
 
 ## Architecture
 
-- Mobile app: Flutter
-- Backend: Node.js + Express + TypeScript
-- Database: PostgreSQL + PostGIS
-- Routing: OSRM
-- AI: Python recommendation service
+- **Mobile app:** Flutter
+- **Backend:** Node.js + Express + TypeScript + Prisma
+- **Database:** PostgreSQL + PostGIS (or Supabase)
+- **Routing:** OSRM
+- **AI Service:** Python (Flask + scikit-learn)
 
-## Requirements
+---
 
-Install the following before running PathCraft:
+## Prerequisites Check
 
-- Git
-- Node.js 20 or later and npm
-- Flutter SDK and Dart SDK
-- Python 3.12 or later
-- PostgreSQL with the PostGIS extension, or a Supabase PostgreSQL project with PostGIS enabled
-- Android Studio and an Android emulator or physical Android device for mobile testing
+Before running PathCraft, ensure you have the following installed:
 
-Docker is not required for local development.
+- **Git**
+- **Node.js** (v20 or higher) and **npm**
+- **Python** (v3.12 or higher)
+- **Flutter SDK** and **Dart SDK** (v3.3.0 or higher)
+- **PostgreSQL** with PostGIS extension (or a Supabase PostgreSQL project with PostGIS enabled)
+- **Android Studio** (with an emulator or connected physical Android device)
 
-Check the main tools with:
+Check installed versions:
 
 ```powershell
 git --version
@@ -33,147 +33,154 @@ flutter --version
 python --version
 ```
 
-## Environment setup
+---
 
-Create a `.env` file in the repository root. Do not commit this file. It must contain:
+## Step-by-Step Setup & How to Run
+
+### Step 1: Environment Setup (`.env`)
+
+Create a `.env` file in the repository root (or copy from `.env.example`). Do not commit this file.
 
 ```env
 PORT=3000
 NODE_ENV=development
 JWT_SECRET=replace_with_a_long_random_secret
-DATABASE_URL="postgresql://USER:PASSWORD@HOST:6543/postgres?pgbouncer=true&connection_limit=1"
+
+# Database connection
+DATABASE_URL="postgresql://USER:PASSWORD@HOST:6543/postgres?pgbouncer=true"
 DIRECT_URL="postgresql://USER:PASSWORD@HOST:5432/postgres"
+
+# Services
 OSRM_URL=http://localhost:5000
 AI_SERVICE_URL=http://localhost:8000
 ```
 
-For Supabase, copy the pooled connection into `DATABASE_URL` and the direct
-connection into `DIRECT_URL` from Supabase Dashboard > Connect. Enable the
-`postgis` extension in Supabase before running migrations. URL-encode special
-characters in the database password.
+> **Optional Docker setup:** If running PostgreSQL locally via Docker instead of Supabase:
+> ```powershell
+> docker compose up -d
+> ```
 
-## Install dependencies
+---
 
-From the repository root, run each section in a separate terminal when you want
-all services running at the same time.
+### Step 2: Set Up & Run Backend Service
 
-### Backend
+Open a new terminal:
 
-```powershell
-cd backend
-npm install
-npx prisma generate
-npx prisma migrate deploy
-```
+1. Navigate to `backend`:
+   ```powershell
+   cd backend
+   ```
+2. Install dependencies:
+   ```powershell
+   npm install
+   ```
+3. Generate Prisma client & apply database migrations:
+   ```powershell
+   npx prisma generate
+   npx prisma migrate deploy
+   ```
+4. Start the backend in development mode:
+   ```powershell
+   npm run dev
+   ```
+   *The backend will run at `http://localhost:3000`.*
 
-### AI service
+---
 
-```powershell
-cd ai
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-```
+### Step 3: Set Up & Run AI Service
 
-If PowerShell blocks activation, run the commands from Command Prompt instead:
+Open a second terminal:
 
-```cmd
-ai\.venv\Scripts\activate.bat
-```
+1. Navigate to `ai`:
+   ```powershell
+   cd ai
+   ```
+2. Create and activate a Python virtual environment:
+   - **PowerShell:**
+     ```powershell
+     python -m venv .venv
+     .\.venv\Scripts\Activate.ps1
+     ```
+   - **Command Prompt (CMD):**
+     ```cmd
+     python -m venv .venv
+     .venv\Scripts\activate.bat
+     ```
+3. Install required Python packages:
+   ```powershell
+   pip install -r requirements.txt
+   ```
+4. Start the AI service:
+   ```powershell
+   python main.py
+   ```
+   *The AI service will run at `http://localhost:8000`.*
 
-### Flutter mobile app
+---
 
-```powershell
-cd mobile
-flutter pub get
-flutter doctor
-```
+### Step 4: Run Flutter Mobile App
 
-## Run the system
+Open a third terminal:
 
-Start the backend:
+1. Launch your Android Emulator in Android Studio or connect a physical device.
+2. Navigate to `mobile`:
+   ```powershell
+   cd mobile
+   ```
+3. Fetch dependencies:
+   ```powershell
+   flutter pub get
+   ```
+4. Verify connected devices:
+   ```powershell
+   flutter devices
+   ```
+5. Run the mobile application:
+   ```powershell
+   flutter run
+   ```
 
-```powershell
-cd backend
-npm run dev
-```
+> **Note for Android Emulator:** The backend address accessed from the emulator is `http://10.0.2.2:3000` instead of `http://localhost:3000`.
 
-The backend runs at `http://localhost:3000`.
+---
 
-Start the AI service in another terminal:
+## Verification & Health Checks
 
-```powershell
-cd ai
-.\.venv\Scripts\Activate.ps1
-python main.py
-```
+Verify services are running properly:
 
-The AI service runs at `http://localhost:8000`.
+- **Backend Health:** `http://localhost:3000/api/health`
+- **Database Connection Health:** `http://localhost:3000/api/health/database`
+- **AI Service Health:** `http://localhost:8000/health`
 
-Start the Flutter app with an emulator or device running:
-
-```powershell
-cd mobile
-flutter devices
-flutter run
-```
-
-When using an Android emulator, the backend address is usually
-`http://10.0.2.2:3000` from the emulator instead of `http://localhost:3000`.
-
-## Verify the setup
-
-Check the backend:
-
-```powershell
-Invoke-WebRequest http://localhost:3000/api/health
-Invoke-WebRequest http://localhost:3000/api/health/database
-```
-
-Check the AI service:
-
-```powershell
-Invoke-WebRequest http://localhost:8000/health
-```
-
-Verify Prisma CRUD using disposable test data:
-
+**Verify Prisma CRUD using disposable test data:**
 ```powershell
 cd backend
 npm run verify:crud
 ```
 
-Run backend tests with:
-
+**Run Backend Unit Tests:**
 ```powershell
 cd backend
 npm test
 ```
 
-## Activity API
+---
 
-After login, send the returned JWT as `Authorization: Bearer <token>`.
+## Activity API Overview
 
-- `POST /api/auth/register`
-- `POST /api/auth/login`
-- `GET /api/activities` returns only the authenticated user's activities.
-- `POST /api/activities` creates an activity for the authenticated user; the
-	request cannot choose another `userId`.
+After login, include the returned JWT in request headers as `Authorization: Bearer <token>`.
 
-Distance is submitted in meters and returned as `distanceKm`. Pace is stored in
-seconds per kilometer and returned as `averagePaceMinPerKm`. Heart-rate fields
-are nullable and are omitted from neither storage nor meaning when no device
-data is available. GPS points and route geometry are JSON fields; kilometer
-splits are relational rows in `activity_splits`.
+- `POST /api/auth/register` - Register a new user
+- `POST /api/auth/login` - User login
+- `GET /api/activities` - Fetch authenticated user's activities
+- `POST /api/activities` - Record a new activity
 
-## Project structure
+---
 
-- `mobile/`: Flutter application
-- `backend/`: Express, TypeScript, Prisma, authentication, and REST API
+## Project Structure
+
+- `mobile/`: Flutter mobile application
+- `backend/`: Express, TypeScript, Prisma REST API
 - `ai/`: Python recommendation service
-- `backend/prisma/`: Prisma schema and migrations
-- `docs/`: project documentation
-
-## Phase 0
-
-This repository is being created incrementally. The environment was audited before scaffolding.
+- `backend/prisma/`: Database schema & migrations
+- `docs/`: Additional setup and design documentation
