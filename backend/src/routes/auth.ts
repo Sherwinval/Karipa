@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { sendOtpEmail } from '../services/emailService.js';
 import crypto from 'crypto';
+import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.js';
 
 const credentialsSchema = z.object({ 
   name: z.string().min(1).optional(), 
@@ -172,3 +173,27 @@ authRouter.post('/login', async (req, res) => {
     res.status(500).json({ success: false, message: 'Internal server error' });
   }
 });
+
+authRouter.get('/me', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.userId! },
+      select: { id: true, name: true, email: true, createdAt: true },
+    });
+    if (!user) {
+      res.status(404).json({ success: false, message: 'User not found' });
+      return;
+    }
+    res.json({
+      success: true,
+      user: {
+        id: user.id.toString(),
+        name: user.name,
+        email: user.email,
+        createdAt: user.createdAt.toISOString(),
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+});

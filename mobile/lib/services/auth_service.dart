@@ -2,10 +2,10 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'api_service.dart';
 
 class AuthService extends ChangeNotifier {
-  // Use 10.0.2.2 for Android emulator to connect to localhost
-  final String baseUrl = 'http://10.0.2.2:3000/api/auth';
+  String get baseUrl => '${ApiService.baseUrl}/auth';
   
   bool _isAuthenticated = false;
   bool _isGuest = false;
@@ -32,6 +32,8 @@ class AuthService extends ChangeNotifier {
 
     if (_token != null) {
       _isAuthenticated = true;
+    } else if (_isGuest && _name == null) {
+      _name = 'Guest';
     }
     notifyListeners();
   }
@@ -142,7 +144,7 @@ class AuthService extends ChangeNotifier {
     _isAuthenticated = false;
     _token = null;
     _userId = null;
-    _name = null;
+    _name = 'Guest';
     await _saveAuthStatus();
     notifyListeners();
   }

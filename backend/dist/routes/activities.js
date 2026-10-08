@@ -75,3 +75,39 @@ activityRouter.post('/', async (req, res) => {
     });
     res.status(201).json({ success: true, activity: serializeActivity(activity) });
 });
+activityRouter.get('/:id', async (req, res) => {
+    try {
+        const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+        const activityId = BigInt(String(rawId));
+        const activity = await prisma.activity.findFirst({
+            where: { id: activityId, userId: req.userId },
+            include: { splits: { orderBy: { kilometer: 'asc' } } },
+        });
+        if (!activity) {
+            res.status(404).json({ success: false, message: 'Activity not found' });
+            return;
+        }
+        res.json({ success: true, activity: serializeActivity(activity) });
+    }
+    catch (err) {
+        res.status(400).json({ success: false, message: 'Invalid activity id' });
+    }
+});
+activityRouter.delete('/:id', async (req, res) => {
+    try {
+        const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+        const activityId = BigInt(String(rawId));
+        const activity = await prisma.activity.findFirst({
+            where: { id: activityId, userId: req.userId },
+        });
+        if (!activity) {
+            res.status(404).json({ success: false, message: 'Activity not found' });
+            return;
+        }
+        await prisma.activity.delete({ where: { id: activityId } });
+        res.json({ success: true, message: 'Activity deleted successfully' });
+    }
+    catch (err) {
+        res.status(400).json({ success: false, message: 'Invalid activity id' });
+    }
+});

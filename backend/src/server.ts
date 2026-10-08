@@ -5,6 +5,7 @@ import { prisma } from './lib/prisma.js';
 import { activityRouter } from './routes/activities.js';
 import { authRouter } from './routes/auth.js';
 import { aiRouter } from './routes/ai.js';
+import { routeRouter } from './routes/routes.js';
 
 dotenv.config({ path: ['.env', '../.env'] });
 
@@ -16,6 +17,7 @@ app.use(express.json());
 app.use('/api/auth', authRouter);
 app.use('/api/activities', activityRouter);
 app.use('/api/ai', aiRouter);
+app.use('/api/routes', routeRouter);
 
 app.get('/api/health', (_req, res) => {
   res.status(200).json({
