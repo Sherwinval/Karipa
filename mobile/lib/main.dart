@@ -22,6 +22,7 @@ import 'screens/activity_complete_screen.dart';
 import 'screens/activity_history_screen.dart';
 import 'screens/activity_details_screen.dart';
 import 'screens/profile_screen.dart';
+import 'theme/app_theme.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -43,22 +44,9 @@ class PathCraftApp extends StatelessWidget {
     return MaterialApp(
       title: 'PathCraft',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF0D9488),
-          primary: const Color(0xFF0D9488),
-          secondary: const Color(0xFF14B8A6),
-        ),
-        useMaterial3: true,
-        fontFamily: 'Inter',
-        scaffoldBackgroundColor: const Color(0xFFF8FAFC),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.white,
-          foregroundColor: Color(0xFF0F172A),
-          elevation: 0,
-          centerTitle: false,
-        ),
-      ),
+      theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
+      themeMode: ThemeMode.light,
       initialRoute: '/',
       onGenerateRoute: (settings) {
         final args = settings.arguments as Map<String, dynamic>?;

@@ -4,11 +4,16 @@ PathCraft is a capstone project that generates personalized outdoor routes for w
 
 ## Architecture
 
-- **Mobile app:** Flutter
-- **Backend:** Node.js + Express + TypeScript + Prisma
-- **Database:** PostgreSQL + PostGIS (or Supabase)
-- **Routing:** OSRM
-- **AI Service:** Python (Flask + scikit-learn)
+Default architecture chosen for this capstone build:
+
+- **Mobile app:** Flutter + Dart + Material 3 + Google Fonts
+- **Backend:** Node.js + Express + TypeScript
+- **Database:** Supabase Postgres with PostGIS + RLS migration files tracked in the repo
+- **Routing:** self-hosted OSRM service, with route candidates approximating target distances via waypoint loops and out-and-back generation
+- **AI Service:** Python + FastAPI + Gemini API with deterministic fallback ranking
+- **Auth:** Supabase Auth is the recommended default for this project; custom JWT remains an option if required for the panel
+
+This repo keeps the app and service boundaries modular so route generation, route evaluation, and AI ranking remain separate components.
 
 ---
 
@@ -46,7 +51,7 @@ PORT=3000
 NODE_ENV=development
 JWT_SECRET=replace_with_a_long_random_secret
 
-# Database connection
+# Supabase config
 DATABASE_URL="postgresql://USER:PASSWORD@HOST:6543/postgres?pgbouncer=true"
 DIRECT_URL="postgresql://USER:PASSWORD@HOST:5432/postgres"
 
