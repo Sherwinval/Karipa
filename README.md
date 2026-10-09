@@ -141,6 +141,18 @@ Open a third terminal:
    ```
 
 > **Note for Android Emulator:** The backend address accessed from the emulator is `http://10.0.2.2:3000` instead of `http://localhost:3000`.
+> 
+> **Tip - Setting Emulator Location:** By default, Android Emulators report a fixed default location. To automatically set the emulator's GPS location based on where you are (or a specific city/coordinates), run the included helper script in the project root:
+> ```powershell
+> # Automatically detect and set emulator location via IP geolocation
+> .\set_emulator_location.ps1
+> 
+> # Or specify a target city
+> .\set_emulator_location.ps1 -City "New York"
+> 
+> # Or specify custom coordinates (latitude & longitude)
+> .\set_emulator_location.ps1 -Latitude 37.7749 -Longitude -122.4194
+> ```
 
 ---
 
