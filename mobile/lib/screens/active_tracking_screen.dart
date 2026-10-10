@@ -5,7 +5,6 @@ import 'package:latlong2/latlong.dart';
 import '../models/route_model.dart';
 import '../services/location_service.dart';
 import '../services/api_service.dart';
-import '../widgets/metric_tile.dart';
 import '../widgets/route_map_widget.dart';
 
 class ActiveTrackingScreen extends StatefulWidget {
@@ -94,12 +93,12 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
       final remHours = _remainingDistanceKm / _speedKmh;
       final remMins = (remHours * 60).round();
       return '$remMins min';
-    } else {
-      if (_paceSecondsPerKm == 0.0) return '--';
-      final remSec = (_remainingDistanceKm * _paceSecondsPerKm).round();
-      final remMins = remSec ~/ 60;
-      return '$remMins min';
     }
+
+    if (_paceSecondsPerKm == 0.0) return '--';
+    final remSec = (_remainingDistanceKm * _paceSecondsPerKm).round();
+    final remMins = remSec ~/ 60;
+    return '$remMins min';
   }
 
   @override
@@ -134,9 +133,13 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
     // MET values: Walking 3.5, Jogging 7.0, Running 9.8, Cycling 7.5
     double met = 9.8;
     final act = widget.activity.toLowerCase();
-    if (act == 'walking') met = 3.5;
-    else if (act == 'jogging') met = 7.0;
-    else if (act == 'cycling') met = 7.5;
+    if (act == 'walking') {
+      met = 3.5;
+    } else if (act == 'jogging') {
+      met = 7.0;
+    } else if (act == 'cycling') {
+      met = 7.5;
+    }
 
     const assumedWeightKg = 70.0;
     final hours = _activeSeconds / 3600.0;
@@ -268,10 +271,13 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: () async {
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) {
+          return;
+        }
         await _confirmFinishActivity();
-        return false;
       },
       child: Scaffold(
         backgroundColor: const Color(0xFF0F172A), // Sleek dark tracking UI

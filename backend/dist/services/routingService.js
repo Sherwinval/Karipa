@@ -24,29 +24,61 @@ function destinationPoint(lat, lon, distanceKm, bearingDeg) {
     const lon2 = lon1 + Math.atan2(Math.sin(brng) * Math.sin(distanceKm / R) * Math.cos(lat1), Math.cos(distanceKm / R) - Math.sin(lat1) * Math.sin(lat2));
     return [lat2 / rad, lon2 / rad];
 }
-async function callOsrm(profile, coordinates) {
-    const coordString = coordinates.map(([lat, lon]) => `${lon.toFixed(6)},${lat.toFixed(6)}`).join(';');
-    const baseUrls = [
-        process.env.OSRM_URL,
-        DEFAULT_OSRM_URL,
-    ].filter(Boolean);
-    for (const baseUrl of baseUrls) {
+let _resolvedBaseUrl = null;
+async function getWorkingOsrmBaseUrl() {
+    if (_resolvedBaseUrl)
+        return _resolvedBaseUrl;
+    const localUrl = process.env.OSRM_URL;
+    if (localUrl && !localUrl.includes('project-osrm.org')) {
         try {
-            // First try profile, if fails fallback to foot or driving
-            const url = `${baseUrl.replace(/\/+$/, '')}/route/v1/${profile}/${coordString}?overview=full&geometries=geojson&steps=true&annotations=true`;
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 7000);
-            const resp = await fetch(url, { signal: controller.signal });
+            const timeout = setTimeout(() => controller.abort(), 1200);
+            const test = await fetch(`${localUrl.replace(/\/+$/, '')}/health`, { signal: controller.signal });
             clearTimeout(timeout);
-            if (resp.ok) {
-                const json = await resp.json();
-                if (json.code === 'Ok' && json.routes && json.routes.length > 0) {
-                    return json.routes[0];
-                }
+            if (test.ok) {
+                _resolvedBaseUrl = localUrl.replace(/\/+$/, '');
+                return _resolvedBaseUrl;
             }
         }
         catch {
-            // Continue to next baseUrl fallback
+            // Local not running, use public OSRM
+        }
+    }
+    _resolvedBaseUrl = DEFAULT_OSRM_URL;
+    return _resolvedBaseUrl;
+}
+async function callOsrm(profile, coordinates) {
+    const coordString = coordinates.map(([lat, lon]) => `${lon.toFixed(6)},${lat.toFixed(6)}`).join(';');
+    const baseUrl = await getWorkingOsrmBaseUrl();
+    try {
+        const url = `${baseUrl}/route/v1/${profile}/${coordString}?overview=full&geometries=geojson&steps=true&annotations=true`;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 6000);
+        const resp = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeout);
+        if (resp.ok) {
+            const json = await resp.json();
+            if (json.code === 'Ok' && json.routes && json.routes.length > 0) {
+                return json.routes[0];
+            }
+        }
+    }
+    catch {
+        // Retry once with default OSRM if not already
+        if (baseUrl !== DEFAULT_OSRM_URL) {
+            try {
+                const fallbackUrl = `${DEFAULT_OSRM_URL}/route/v1/${profile}/${coordString}?overview=full&geometries=geojson&steps=true`;
+                const resp = await fetch(fallbackUrl);
+                if (resp.ok) {
+                    const json = await resp.json();
+                    if (json.code === 'Ok' && json.routes && json.routes.length > 0) {
+                        return json.routes[0];
+                    }
+                }
+            }
+            catch {
+                // failed
+            }
         }
     }
     // If bike profile failed, try foot profile on public OSRM as fallback
@@ -118,9 +150,12 @@ export async function generateCandidateRoutes(activity, targetDistanceKm, prefer
         { name: 'Boulevard Out & Back', coords: outAndBackCoords, isLoop: false },
         { name: 'Quiet Residential Loop', coords: loop3Coords, isLoop: true },
     ];
-    let routeCounter = 1;
-    for (const config of candidateConfigs) {
+    const results = await Promise.all(candidateConfigs.map(async (config) => {
         const osrmRoute = await callOsrm(profile, config.coords);
+        return { config, osrmRoute };
+    }));
+    let routeCounter = 1;
+    for (const { config, osrmRoute } of results) {
         if (osrmRoute && osrmRoute.geometry && osrmRoute.geometry.coordinates) {
             const distanceMeters = osrmRoute.distance;
             const distanceKm = Number((distanceMeters / 1000).toFixed(2));
