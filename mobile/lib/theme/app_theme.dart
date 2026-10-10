@@ -169,7 +169,7 @@ class AppTheme {
       bodyMedium: GoogleFonts.inter(fontWeight: FontWeight.w400),
       labelLarge: GoogleFonts.inter(fontWeight: FontWeight.w600),
     ),
-    cardTheme: CardTheme(
+    cardTheme: CardThemeData(
       elevation: 0,
       margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),

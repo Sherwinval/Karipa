@@ -15,15 +15,15 @@ SELECT PostGIS_Version();
 ```
 
 5. Copy `backend/.env.example` to `backend/.env` and set `DATABASE_URL` to the local credentials.
-6. From `backend`, generate the client and create the first migration:
+6. From `backend`, generate the client and apply the checked-in migrations:
 
 ```powershell
 npm install
 npx prisma generate
-npx prisma migrate dev --name init
+npx prisma migrate dev
 ```
 
-The migration command is intentionally not run until local credentials and PostGIS are configured. Do not use `prisma migrate reset`.
+The migrations create the initial users, activities, and routes tables, then add email-verification fields and activity splits. The migration command is intentionally not run until local credentials and PostGIS are configured. Do not use `prisma migrate reset`.
 
 ## Verification
 
