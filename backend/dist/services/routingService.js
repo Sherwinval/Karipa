@@ -1,4 +1,94 @@
+const MAX_DISTANCE_DEVIATION_KM = 2;
 const DEFAULT_OSRM_URL = 'https://router.project-osrm.org';
+function haversineDistanceKm([lon1, lat1], [lon2, lat2]) {
+    const toRadians = Math.PI / 180;
+    const deltaLat = (lat2 - lat1) * toRadians;
+    const deltaLon = (lon2 - lon1) * toRadians;
+    const a = Math.sin(deltaLat / 2) ** 2 +
+        Math.cos(lat1 * toRadians) * Math.cos(lat2 * toRadians) * Math.sin(deltaLon / 2) ** 2;
+    return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+function isValidGeometry(coordinates) {
+    if (!Array.isArray(coordinates) || coordinates.length < 2)
+        return false;
+    let hasMovement = false;
+    let previous;
+    for (const point of coordinates) {
+        if (!Array.isArray(point) ||
+            point.length < 2 ||
+            typeof point[0] !== 'number' ||
+            typeof point[1] !== 'number' ||
+            !Number.isFinite(point[0]) ||
+            !Number.isFinite(point[1]) ||
+            point[0] < -180 ||
+            point[0] > 180 ||
+            point[1] < -90 ||
+            point[1] > 90) {
+            return false;
+        }
+        const coordinate = [point[0], point[1]];
+        if (previous && haversineDistanceKm(previous, coordinate) > 0)
+            hasMovement = true;
+        previous = coordinate;
+    }
+    return hasMovement;
+}
+function geometryFingerprint(coordinates) {
+    const samples = Array.from({ length: Math.min(12, coordinates.length) }, (_, index) => {
+        const coordinateIndex = Math.round(index * (coordinates.length - 1) / (Math.min(12, coordinates.length) - 1));
+        const [longitude, latitude] = coordinates[coordinateIndex];
+        return `${longitude.toFixed(3)},${latitude.toFixed(3)}`;
+    });
+    const reversed = [...samples].reverse();
+    return samples.join(';') < reversed.join(';') ? samples.join(';') : reversed.join(';');
+}
+/**
+ * Treat the routing engine's distance as authoritative; never qualify a route
+ * from its requested waypoints or its rounded display distance.
+ */
+export function validateAndDeduplicateCandidateRoutes(routes, targetDistanceKm) {
+    if (!Number.isFinite(targetDistanceKm) || targetDistanceKm < 0)
+        return [];
+    const minimumDistanceKm = Math.max(0, targetDistanceKm - MAX_DISTANCE_DEVIATION_KM);
+    const maximumDistanceKm = targetDistanceKm + MAX_DISTANCE_DEVIATION_KM;
+    const seenGeometries = new Set();
+    const validRoutes = [];
+    for (const route of routes) {
+        if (!route || typeof route !== 'object')
+            continue;
+        const distanceMeters = route.distanceMeters;
+        if (!Number.isFinite(distanceMeters) ||
+            distanceMeters <= 0 ||
+            !route.geometry ||
+            route.geometry.type !== 'LineString' ||
+            !isValidGeometry(route.geometry.coordinates)) {
+            continue;
+        }
+        const distanceKm = distanceMeters / 1000;
+        if (distanceKm < minimumDistanceKm || distanceKm > maximumDistanceKm)
+            continue;
+        const fingerprint = geometryFingerprint(route.geometry.coordinates);
+        if (seenGeometries.has(fingerprint))
+            continue;
+        seenGeometries.add(fingerprint);
+        const features = route.features ?? {};
+        validRoutes.push({
+            ...route,
+            distanceKm,
+            features: {
+                ...features,
+                distanceDeltaKm: Math.abs(distanceKm - targetDistanceKm),
+                isLoop: Boolean(features.isLoop),
+                sidewalkRatio: Number.isFinite(features.sidewalkRatio) ? features.sidewalkRatio : 0,
+                majorRoadRatio: Number.isFinite(features.majorRoadRatio) ? features.majorRoadRatio : 1,
+                cyclingLaneRatio: Number.isFinite(features.cyclingLaneRatio) ? features.cyclingLaneRatio : 0,
+                roadTypes: Array.isArray(features.roadTypes) ? features.roadTypes : [],
+                elevationGainM: Number.isFinite(features.elevationGainM) ? features.elevationGainM : undefined,
+            },
+        });
+    }
+    return validRoutes;
+}
 function getOsrmProfile(activity) {
     switch (activity.toLowerCase()) {
         case 'cycling':
@@ -81,84 +171,44 @@ async function callOsrm(profile, coordinates) {
             }
         }
     }
-    // If bike profile failed, try foot profile on public OSRM as fallback
-    if (profile === 'bike') {
-        try {
-            const fallbackUrl = `${DEFAULT_OSRM_URL}/route/v1/foot/${coordString}?overview=full&geometries=geojson&steps=true`;
-            const resp = await fetch(fallbackUrl);
-            if (resp.ok) {
-                const json = await resp.json();
-                if (json.code === 'Ok' && json.routes && json.routes.length > 0) {
-                    return json.routes[0];
-                }
-            }
-        }
-        catch {
-            // Fallback failed
-        }
-    }
     return null;
 }
 export async function generateCandidateRoutes(activity, targetDistanceKm, preferences, startLocation) {
     const profile = getOsrmProfile(activity);
-    const candidates = [];
-    // Circle radius for loop generation
-    // For a polygon loop with perimeter P ≈ targetDistanceKm, radius R ≈ P / (2 * pi)
-    const loopRadiusKm = Math.max(0.3, targetDistanceKm / (2 * Math.PI));
-    const outAndBackRadiusKm = Math.max(0.4, (targetDistanceKm / 2) * 0.9);
-    // Strategy 1: Clockwise Triangle/Square Loop (Bearing 0, 120, 240)
-    const p1 = destinationPoint(startLocation.latitude, startLocation.longitude, loopRadiusKm, 30);
-    const p2 = destinationPoint(startLocation.latitude, startLocation.longitude, loopRadiusKm, 150);
-    const p3 = destinationPoint(startLocation.latitude, startLocation.longitude, loopRadiusKm, 270);
-    const loop1Coords = [
-        [startLocation.latitude, startLocation.longitude],
-        p1,
-        p2,
-        p3,
-        [startLocation.latitude, startLocation.longitude],
-    ];
-    // Strategy 2: Counter-Clockwise Hex Loop (Bearing 90, 210, 330)
-    const q1 = destinationPoint(startLocation.latitude, startLocation.longitude, loopRadiusKm * 1.15, 90);
-    const q2 = destinationPoint(startLocation.latitude, startLocation.longitude, loopRadiusKm * 1.15, 210);
-    const q3 = destinationPoint(startLocation.latitude, startLocation.longitude, loopRadiusKm * 1.15, 330);
-    const loop2Coords = [
-        [startLocation.latitude, startLocation.longitude],
-        q1,
-        q2,
-        q3,
-        [startLocation.latitude, startLocation.longitude],
-    ];
-    // Strategy 3: Out-and-back route to North/East
-    const w1 = destinationPoint(startLocation.latitude, startLocation.longitude, outAndBackRadiusKm, 45);
-    const outAndBackCoords = [
-        [startLocation.latitude, startLocation.longitude],
-        w1,
-        [startLocation.latitude, startLocation.longitude],
-    ];
-    // Strategy 4: South/West Scenic Loop
-    const s1 = destinationPoint(startLocation.latitude, startLocation.longitude, loopRadiusKm * 0.9, 180);
-    const s2 = destinationPoint(startLocation.latitude, startLocation.longitude, loopRadiusKm * 0.9, 270);
-    const loop3Coords = [
-        [startLocation.latitude, startLocation.longitude],
-        s1,
-        s2,
-        [startLocation.latitude, startLocation.longitude],
-    ];
-    const candidateConfigs = [
-        { name: 'Scenic Park Loop', coords: loop1Coords, isLoop: true },
-        { name: 'Neighborhood Circuit', coords: loop2Coords, isLoop: true },
-        { name: 'Boulevard Out & Back', coords: outAndBackCoords, isLoop: false },
-        { name: 'Quiet Residential Loop', coords: loop3Coords, isLoop: true },
-    ];
+    const start = [startLocation.latitude, startLocation.longitude];
+    const constructionScales = [0.55, 0.75, 0.9, 1, 1.1, 1.25, 1.45];
+    const candidateConfigs = constructionScales.flatMap((scale) => {
+        const constructionDistanceKm = targetDistanceKm * scale;
+        const loopRadiusKm = Math.max(0.1, constructionDistanceKm / (2 * Math.PI));
+        const outAndBackRadiusKm = Math.max(0.15, (constructionDistanceKm / 2) * 0.9);
+        const p1 = destinationPoint(...start, loopRadiusKm, 30);
+        const p2 = destinationPoint(...start, loopRadiusKm, 150);
+        const p3 = destinationPoint(...start, loopRadiusKm, 270);
+        const q1 = destinationPoint(...start, loopRadiusKm * 1.15, 90);
+        const q2 = destinationPoint(...start, loopRadiusKm * 1.15, 210);
+        const q3 = destinationPoint(...start, loopRadiusKm * 1.15, 330);
+        const w1 = destinationPoint(...start, outAndBackRadiusKm, 45);
+        const s1 = destinationPoint(...start, loopRadiusKm * 0.9, 180);
+        const s2 = destinationPoint(...start, loopRadiusKm * 0.9, 270);
+        return [
+            { name: 'Scenic Park Loop', coords: [start, p1, p2, p3, start], isLoop: true },
+            { name: 'Neighborhood Circuit', coords: [start, q1, q2, q3, start], isLoop: true },
+            { name: 'Boulevard Out & Back', coords: [start, w1, start], isLoop: false },
+            { name: 'Quiet Residential Loop', coords: [start, s1, s2, start], isLoop: true },
+        ].map((candidate) => ({
+            ...candidate,
+            name: `${candidate.name} (${scale}x)`,
+        }));
+    });
     const results = await Promise.all(candidateConfigs.map(async (config) => {
         const osrmRoute = await callOsrm(profile, config.coords);
         return { config, osrmRoute };
     }));
-    let routeCounter = 1;
+    const candidates = [];
     for (const { config, osrmRoute } of results) {
         if (osrmRoute && osrmRoute.geometry && osrmRoute.geometry.coordinates) {
             const distanceMeters = osrmRoute.distance;
-            const distanceKm = Number((distanceMeters / 1000).toFixed(2));
+            const distanceKm = distanceMeters / 1000;
             const durationSeconds = Math.round(osrmRoute.duration);
             // Analyze road classification from steps
             const roadNames = [];
@@ -188,7 +238,7 @@ export async function generateCandidateRoutes(activity, targetDistanceKm, prefer
             const majorRatio = totalSteps > 0 ? Number((majorRoadSteps / totalSteps).toFixed(2)) : 0.1;
             const sidewalkRatio = totalSteps > 0 ? Number((Math.max(sidewalkSteps, totalSteps - majorRoadSteps) / totalSteps).toFixed(2)) : 0.85;
             candidates.push({
-                id: `route-${routeCounter++}`,
+                id: `route-${candidates.length + 1}`,
                 name: config.name,
                 activityType: activity,
                 distanceKm,
@@ -210,16 +260,15 @@ export async function generateCandidateRoutes(activity, targetDistanceKm, prefer
             });
         }
     }
-    // Fallback: If OSRM was temporarily unreachable for complex multi-point loops,
-    // query a 2-point realistic waypoint to ensure real OSM route is returned!
+    // Retry with a direct routed leg if OSRM rejected all multi-waypoint candidates.
     if (candidates.length === 0) {
-        const fallbackP1 = destinationPoint(startLocation.latitude, startLocation.longitude, Math.max(0.8, targetDistanceKm / 2), 45);
+        const fallbackP1 = destinationPoint(startLocation.latitude, startLocation.longitude, Math.max(0.15, targetDistanceKm / 2), 45);
         const osrmRoute = await callOsrm(profile, [
-            [startLocation.latitude, startLocation.longitude],
+            start,
             fallbackP1,
         ]);
         if (osrmRoute && osrmRoute.geometry) {
-            const distanceKm = Number((osrmRoute.distance / 1000).toFixed(2));
+            const distanceKm = osrmRoute.distance / 1000;
             candidates.push({
                 id: 'route-1',
                 name: 'Direct OpenStreetMap Route',
@@ -242,5 +291,5 @@ export async function generateCandidateRoutes(activity, targetDistanceKm, prefer
             });
         }
     }
-    return candidates;
+    return validateAndDeduplicateCandidateRoutes(candidates, targetDistanceKm);
 }

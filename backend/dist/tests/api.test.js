@@ -9,7 +9,7 @@ import { authRouter } from '../routes/auth.js';
 import { activityRouter } from '../routes/activities.js';
 import { routeRouter } from '../routes/routes.js';
 import { generateCandidateRoutes } from '../services/routingService.js';
-import { rankCandidateRoutesWithAi } from '../services/aiRecommendationService.js';
+import { rankCandidateRoutes } from '../services/routeRankingService.js';
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -31,7 +31,7 @@ describe('Routing Service & AI Recommendation', () => {
         expect(first.geometry.coordinates.length).toBeGreaterThan(1);
         expect(first.features).toBeDefined();
     }, 15000);
-    it('ranks candidate routes with AI recommendation logic', async () => {
+    it('ranks candidate routes by distance and preferences', async () => {
         const mockCandidates = [
             {
                 id: 'route-1',
@@ -68,9 +68,9 @@ describe('Routing Service & AI Recommendation', () => {
                 },
             },
         ];
-        const ranked = await rankCandidateRoutesWithAi('running', 5.0, { preferLoop: true, avoidMajorRoads: true }, mockCandidates);
+        const ranked = await rankCandidateRoutes('running', 5.0, { preferLoop: true, avoidMajorRoads: true }, mockCandidates);
         expect(ranked).toBeDefined();
-        expect(ranked.length).toBe(2);
+        expect(ranked.length).toBe(1);
         expect(ranked[0].id).toBe('route-1');
         expect(ranked[0].isTopRecommendation).toBe(true);
         expect(ranked[0].score).toBeGreaterThan(ranked[1].score);

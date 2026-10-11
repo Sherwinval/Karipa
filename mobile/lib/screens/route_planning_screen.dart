@@ -43,6 +43,13 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
     });
 
     try {
+      final distance = _isCustomDistance
+          ? double.tryParse(_customDistanceController.text)
+          : _targetDistanceKm;
+      if (distance == null || distance < 0.5 || distance > 100) {
+        throw Exception('Please specify a valid distance between 0.5 km and 100 km.');
+      }
+
       // 1. Acquire real GPS Location
       final permissionStatus = await LocationService.checkAndRequestPermission();
 
@@ -57,14 +64,6 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
       final position = await LocationService.getCurrentPosition();
       if (position == null) {
         throw Exception('Could not determine current GPS position. Please check your signal and try again.');
-      }
-
-      final distance = _isCustomDistance
-          ? (double.tryParse(_customDistanceController.text) ?? 5.0)
-          : _targetDistanceKm;
-
-      if (distance <= 0.2 || distance > 100) {
-        throw Exception('Please specify a valid distance between 0.5 km and 100 km.');
       }
 
       // 2. Call backend Route Generation API

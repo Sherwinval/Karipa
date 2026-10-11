@@ -3,14 +3,14 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.js';
 import { generateCandidateRoutes } from '../services/routingService.js';
-import { rankCandidateRoutesWithAi } from '../services/aiRecommendationService.js';
+import { rankCandidateRoutes } from '../services/routeRankingService.js';
 
 export const routeRouter = Router();
 
 const generateSchema = z.object({
   activity: z.enum(['walking', 'jogging', 'running', 'cycling']).optional(),
   activityType: z.enum(['walking', 'jogging', 'running', 'cycling']).optional(),
-  targetDistanceKm: z.number().positive(),
+  targetDistanceKm: z.number().min(0.5).max(100),
   preferences: z.object({
     avoidMajorRoads: z.boolean().optional(),
     preferSidewalks: z.boolean().optional(),
@@ -51,18 +51,26 @@ routeRouter.post('/generate', async (req, res) => {
     if (candidates.length === 0) {
       res.status(404).json({
         success: false,
-        message: 'No routes found for the given location and criteria. Try a different distance or starting point.',
+        message: `Could not generate a valid route within 2 km of the requested ${targetDistanceKm} km distance. Try adjusting the target distance or route preferences.`,
       });
       return;
     }
 
-    // 2. Rank candidate routes with AI recommendation
-    const rankedRoutes = await rankCandidateRoutesWithAi(
+    // 2. Rank only distance-valid candidates deterministically
+    const rankedRoutes = await rankCandidateRoutes(
       activity,
       targetDistanceKm,
       preferences,
       candidates
     );
+
+    if (rankedRoutes.length === 0) {
+      res.status(404).json({
+        success: false,
+        message: `Could not generate a valid route within 2 km of the requested ${targetDistanceKm} km distance. Try adjusting the target distance or route preferences.`,
+      });
+      return;
+    }
 
     res.json({
       success: true,
@@ -101,9 +109,15 @@ routeRouter.post('/recommend', async (req, res) => {
     return;
   }
 
-  const ranked = await rankCandidateRoutesWithAi(
+  const target = Number(targetDistanceKm ?? 5);
+  if (!Number.isFinite(target) || target < 0.5 || target > 100) {
+    res.status(400).json({ success: false, message: 'Target distance must be between 0.5 and 100 km' });
+    return;
+  }
+
+  const ranked = await rankCandidateRoutes(
     activity || 'running',
-    Number(targetDistanceKm || 5),
+    target,
     preferences || {},
     routes
   );

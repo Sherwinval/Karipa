@@ -9,11 +9,11 @@ Default architecture chosen for this capstone build:
 - **Mobile app:** Flutter + Dart + Material 3 + Google Fonts
 - **Backend:** Node.js + Express + TypeScript
 - **Database:** Supabase Postgres with PostGIS + RLS migration files tracked in the repo
-- **Routing:** self-hosted OSRM service, with route candidates approximating target distances via waypoint loops and out-and-back generation
+- **Routing:** OSRM-backed route candidates generated at multiple waypoint scales, validated against OSRM's measured distance (±2 km), and deduplicated before display
 - **AI Service:** Python + FastAPI + Gemini API with deterministic fallback ranking
 - **Auth:** Supabase Auth is the recommended default for this project; custom JWT remains an option if required for the panel
 
-This repo keeps the app and service boundaries modular so route generation, route evaluation, and AI ranking remain separate components.
+The backend ranks valid route candidates deterministically: distance accuracy is the primary order, followed by selected preferences and route quality.
 
 ---
 
