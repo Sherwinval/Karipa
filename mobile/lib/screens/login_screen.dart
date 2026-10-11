@@ -114,7 +114,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 20),
                   const Text(
-                    'Welcome to PathCraft',
+                    'Welcome to Karipa',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 26,

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import '../theme/app_theme.dart';
+import '../theme/design_tokens.dart';
 
 class RouteMapWidget extends StatefulWidget {
   final List<LatLng> routePoints;
@@ -37,18 +39,20 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
     super.didUpdateWidget(oldWidget);
     if (widget.currentLocation != null &&
         (oldWidget.currentLocation == null ||
-         oldWidget.currentLocation != widget.currentLocation)) {
+            oldWidget.currentLocation != widget.currentLocation)) {
       try {
-        _mapController.move(widget.currentLocation!, _mapController.camera.zoom);
+        _mapController.move(
+            widget.currentLocation!, _mapController.camera.zoom);
       } catch (_) {}
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final colors = PathCraftColors.of(context);
     final markers = <Marker>[];
 
-    // Start marker (green)
+    // Start/end remain distinct by symbol as well as fill.
     if (widget.routePoints.isNotEmpty) {
       markers.add(
         Marker(
@@ -57,14 +61,14 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
           height: 32,
           child: Container(
             decoration: BoxDecoration(
-              color: Colors.green.shade600,
+              color: colors.routeHighlight,
               shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 2.5),
-              boxShadow: const [
-                BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2)),
-              ],
+              border: Border.all(color: colors.routeCasing, width: 2.5),
             ),
-            child: const Icon(Icons.play_arrow, color: Colors.white, size: 18),
+            child: Icon(Icons.play_arrow,
+                color: colors.routeCasing,
+                size: 18,
+                semanticLabel: 'Route start'),
           ),
         ),
       );
@@ -80,20 +84,20 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
           height: 32,
           child: Container(
             decoration: BoxDecoration(
-              color: Colors.red.shade600,
+              color: colors.recordedTrack,
               shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 2.5),
-              boxShadow: const [
-                BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2)),
-              ],
+              border: Border.all(color: colors.recordedTrackCasing, width: 2.5),
             ),
-            child: const Icon(Icons.flag, color: Colors.white, size: 16),
+            child: Icon(Icons.flag,
+                color: colors.recordedTrackCasing,
+                size: 16,
+                semanticLabel: 'Route finish'),
           ),
         ),
       );
     }
 
-    // Current location marker (blue GPS pin)
+    // Current position retains the existing concentric-dot geometry.
     if (widget.currentLocation != null) {
       markers.add(
         Marker(
@@ -107,7 +111,7 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
                 width: 26,
                 height: 26,
                 decoration: BoxDecoration(
-                  color: Colors.blue.withOpacity(0.35),
+                  color: colors.routeCasing,
                   shape: BoxShape.circle,
                 ),
               ),
@@ -115,9 +119,10 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
                 width: 14,
                 height: 14,
                 decoration: BoxDecoration(
-                  color: Colors.blue.shade700,
+                  color: colors.routeHighlight,
                   shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 2),
+                  border:
+                      Border.all(color: colors.recordedTrackCasing, width: 2),
                 ),
               ),
             ],
@@ -128,30 +133,34 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
 
     final polylines = <Polyline>[];
 
-    // Planned candidate route line (Teal)
+    // Coral route with contrasting casing; tile imagery is unchanged.
     if (widget.routePoints.isNotEmpty) {
       polylines.add(
         Polyline(
           points: widget.routePoints,
           strokeWidth: 4.5,
-          color: Colors.teal.shade700,
+          color: colors.routeHighlight,
+          borderColor: colors.routeCasing,
+          borderStrokeWidth: 2,
         ),
       );
     }
 
-    // Completed user tracked GPS path (Orange vibrant line)
+    // Recorded track has an independent neutral treatment.
     if (widget.trackedPoints != null && widget.trackedPoints!.isNotEmpty) {
       polylines.add(
         Polyline(
           points: widget.trackedPoints!,
           strokeWidth: 5.5,
-          color: Colors.deepOrange.shade600,
+          color: colors.recordedTrack,
+          borderColor: colors.recordedTrackCasing,
+          borderStrokeWidth: 2,
         ),
       );
     }
 
     return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(AppRadii.panel),
       child: Stack(
         children: [
           FlutterMap(
@@ -160,7 +169,9 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
               initialCenter: _initialCenter,
               initialZoom: widget.initialZoom,
               interactionOptions: InteractionOptions(
-                flags: widget.interactive ? InteractiveFlag.all : InteractiveFlag.none,
+                flags: widget.interactive
+                    ? InteractiveFlag.all
+                    : InteractiveFlag.none,
               ),
             ),
             children: [
@@ -174,12 +185,13 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
           ),
           if (widget.interactive && widget.currentLocation != null)
             Positioned(
-              right: 12,
-              bottom: 12,
+              right: AppSpacing.md,
+              bottom: AppSpacing.md,
               child: FloatingActionButton.small(
                 heroTag: 'recenter_map',
-                backgroundColor: Colors.white,
-                foregroundColor: Colors.teal,
+                backgroundColor: KaripaPalette.ivory,
+                foregroundColor: KaripaPalette.midnight,
+                tooltip: 'Recenter map',
                 onPressed: () {
                   _mapController.move(widget.currentLocation!, 16.0);
                 },

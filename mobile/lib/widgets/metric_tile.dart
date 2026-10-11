@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
+import '../theme/design_tokens.dart';
 
 class MetricTile extends StatelessWidget {
   final String label;
@@ -6,6 +8,7 @@ class MetricTile extends StatelessWidget {
   final String? unit;
   final IconData? icon;
   final Color? color;
+  final bool prominent;
 
   const MetricTile({
     super.key,
@@ -14,75 +17,64 @@ class MetricTile extends StatelessWidget {
     this.unit,
     this.icon,
     this.color,
+    this.prominent = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final themeColor = color ?? Colors.teal;
+    final theme = Theme.of(context);
+    final tokens = PathCraftColors.of(context);
+    final fill =
+        prominent ? tokens.metricPanel : theme.colorScheme.surfaceContainerLow;
+    final ink = prominent ? tokens.onMetricPanel : theme.colorScheme.onSurface;
+    final accent = KaripaPalette.approvedOr(color, tokens.accent);
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade200),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
+    return Semantics(
+      label: '$label: $value${unit == null ? '' : ' $unit'}',
+      child: ExcludeSemantics(
+        child: Container(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          decoration: BoxDecoration(
+            color: fill,
+            borderRadius: BorderRadius.circular(AppRadii.panel),
           ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
               if (icon != null) ...[
-                Icon(icon, size: 16, color: themeColor),
-                const SizedBox(width: 6),
-              ],
-              Text(
-                label.toUpperCase(),
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.8,
-                  color: Colors.grey.shade600,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text(
-                value,
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: -0.5,
-                  color: Color(0xFF1E293B),
-                ),
-              ),
-              if (unit != null) ...[
-                const SizedBox(width: 4),
-                Text(
-                  unit!,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.grey.shade600,
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                      color: accent,
+                      borderRadius: BorderRadius.circular(AppRadii.control)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(AppSpacing.sm),
+                    child: Icon(icon,
+                        size: AppSizes.compactIcon,
+                        color: KaripaPalette.onFill(accent)),
                   ),
                 ),
+                const SizedBox(height: AppSpacing.md),
+              ],
+              Text(label,
+                  style: theme.textTheme.labelMedium?.copyWith(color: ink)),
+              const SizedBox(height: AppSpacing.sm),
+              Text(value,
+                  style: (prominent
+                          ? theme.textTheme.displayMedium
+                          : theme.textTheme.headlineSmall)
+                      ?.copyWith(
+                    color: ink,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  )),
+              if (unit != null) ...[
+                const SizedBox(height: AppSpacing.xs),
+                Text(unit!,
+                    style: theme.textTheme.bodySmall?.copyWith(color: ink)),
               ],
             ],
           ),
-        ],
+        ),
       ),
     );
   }

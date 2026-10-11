@@ -1,44 +1,44 @@
 import 'package:flutter/material.dart';
+import '../theme/design_tokens.dart';
 
 class StatusBadge extends StatelessWidget {
   final String text;
   final Color? color;
   final IconData? icon;
 
-  const StatusBadge({
-    super.key,
-    required this.text,
-    this.color,
-    this.icon,
-  });
+  const StatusBadge({super.key, required this.text, this.color, this.icon});
 
   @override
   Widget build(BuildContext context) {
-    final baseColor = color ?? Colors.teal;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: baseColor.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: baseColor.withOpacity(0.25), width: 1),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (icon != null) ...[
-            Icon(icon, size: 12, color: baseColor),
-            const SizedBox(width: 4),
-          ],
-          Text(
-            text,
-            style: TextStyle(
-              color: baseColor,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
+    final fill = KaripaPalette.approvedOr(color, KaripaPalette.stone);
+    final ink = KaripaPalette.onFill(fill);
+    return Semantics(
+      label: text,
+      child: ExcludeSemantics(
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+          decoration: BoxDecoration(
+            color: fill,
+            borderRadius: BorderRadius.circular(AppRadii.control),
+            border: Border.all(color: ink),
           ),
-        ],
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[
+                Icon(icon, size: AppSizes.compactIcon, color: ink),
+                const SizedBox(width: AppSpacing.sm),
+              ],
+              Flexible(
+                  child: Text(text,
+                      style: Theme.of(context)
+                          .textTheme
+                          .labelMedium
+                          ?.copyWith(color: ink))),
+            ],
+          ),
+        ),
       ),
     );
   }

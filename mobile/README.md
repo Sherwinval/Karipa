@@ -1,17 +1,13 @@
-# pathcraft_mobile
+# Karipa mobile frontend
 
-A new Flutter project.
+Karipa is the user-facing Flutter application for the PathCraft academic project. The technical package remains `pathcraft_mobile`.
 
-## Getting Started
+- [Frontend instructions and protected boundaries](AGENTS.md)
+- [Development guide: environment, running, debugging, and UI validation](../docs/frontend-development.md)
+- [Approved Karipa design system](../docs/karipa-design-system.md)
+- [Phase 1 implementation and validation report](../docs/frontend-phase1-report.md)
+- [Phase 0 changes, checks, limitations, and next steps](../docs/frontend-phase0-report.md)
+- [Historical palette exploration — superseded](../docs/karipa-design-exploration.md)
+- [Graphify evaluation](../docs/graphify-evaluation.md)
 
-This project is a starting point for a Flutter application.
-
-A few resources to get you started if this is your first Flutter project:
-
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Phase 1 establishes the coral/midnight/warm-neutral shared design system. Existing screens have not been redesigned; Phase 2 requires explicit approval. See the development guide and reports for the observed Windows tooling limitations and the existing splash smoke-test failure.

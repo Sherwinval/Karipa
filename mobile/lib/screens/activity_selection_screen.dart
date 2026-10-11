@@ -67,7 +67,7 @@ class _ActivitySelectionScreenState extends State<ActivitySelectionScreen> {
               ),
               const SizedBox(height: 6),
               Text(
-                'PathCraft will tailor route characteristics and speed profiles to your selected activity.',
+                'Karipa will tailor route characteristics and speed profiles to your selected activity.',
                 style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
               ),
               const SizedBox(height: 24),

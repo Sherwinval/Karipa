@@ -49,7 +49,7 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
       if (permissionStatus == LocationStatus.serviceDisabled) {
         throw Exception('Location services are turned off on your device. Please enable GPS in your device settings.');
       } else if (permissionStatus == LocationStatus.permissionDenied) {
-        throw Exception('Location permission was denied. PathCraft requires location to generate routes starting from your position.');
+        throw Exception('Location permission was denied. Karipa requires location to generate routes starting from your position.');
       } else if (permissionStatus == LocationStatus.permissionDeniedForever) {
         throw Exception('Location permissions are permanently denied. Please open App Settings to grant location access.');
       }

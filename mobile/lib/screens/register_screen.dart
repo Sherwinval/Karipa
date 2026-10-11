@@ -79,7 +79,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const Text(
-                  'Join PathCraft',
+                  'Join Karipa',
                   style: TextStyle(
                     fontSize: 26,
                     fontWeight: FontWeight.bold,

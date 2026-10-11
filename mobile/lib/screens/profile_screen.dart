@@ -48,7 +48,7 @@ class ProfileScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    authService.isGuest ? 'Guest Runner' : (authService.name ?? 'PathCraft Athlete'),
+                    authService.isGuest ? 'Guest Runner' : (authService.name ?? 'Karipa Athlete'),
                     style: const TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.bold,
@@ -137,7 +137,7 @@ class ProfileScreen extends StatelessWidget {
                   const Divider(height: 1),
                   const ListTile(
                     leading: Icon(Icons.info_outline, color: Color(0xFF0D9488)),
-                    title: Text('About PathCraft', style: TextStyle(fontWeight: FontWeight.w600)),
+                    title: Text('About Karipa', style: TextStyle(fontWeight: FontWeight.w600)),
                     subtitle: Text('v1.0.0 • AI-Driven Routing Engine', style: TextStyle(fontSize: 12)),
                   ),
                 ],
@@ -154,7 +154,7 @@ class ProfileScreen extends StatelessWidget {
                     title: Text(authService.isGuest ? 'Exit Guest Mode?' : 'Log Out?'),
                     content: Text(authService.isGuest
                         ? 'Are you sure you want to exit guest mode and return to sign in?'
-                        : 'Are you sure you want to sign out of PathCraft?'),
+                        : 'Are you sure you want to sign out of Karipa?'),
                     actions: [
                       TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
                       ElevatedButton(

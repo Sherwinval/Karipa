@@ -80,7 +80,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
               ),
               const SizedBox(height: 24),
               const Text(
-                'PathCraft',
+                'Karipa',
                 style: TextStyle(
                   fontSize: 34,
                   fontWeight: FontWeight.bold,
