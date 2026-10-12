@@ -4,7 +4,6 @@ import '../services/auth_service.dart';
 import '../services/api_service.dart';
 import '../models/activity_model.dart';
 import 'package:intl/intl.dart';
-import '../theme/app_theme.dart';
 import '../widgets/home_dashboard.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -93,27 +92,24 @@ class _HomeScreenState extends State<HomeScreen> {
     final auth = Provider.of<AuthService>(context);
     final userName = auth.name ?? 'Athlete';
 
-    return Theme(
-      data: AppTheme.darkTheme,
-      child: HomeDashboard(
-        userName: userName,
-        isLoading: _isLoading,
-        distance: _totalDistanceKm.toStringAsFixed(1),
-        activityCount: _activities.length.toString(),
-        activeTime: _formatTotalTime(_totalDurationSeconds),
-        calories: _totalCalories.toStringAsFixed(0),
-        recentActivities:
-            _activities.take(3).map(_buildRecentActivityCard).toList(),
-        currentIndex: _currentIndex,
-        onRefresh: _loadUserDashboard,
-        onNavigationTapped: _onNavigationTapped,
-        onProfile: () => Navigator.pushNamed(context, '/profile')
-            .then((_) => _loadUserDashboard()),
-        onStartActivity: () {
-          Navigator.pushNamed(context, '/activity_selection');
-        },
-        onViewAll: () => Navigator.pushNamed(context, '/activity_history'),
-      ),
+    return HomeDashboard(
+      userName: userName,
+      isLoading: _isLoading,
+      distance: _totalDistanceKm.toStringAsFixed(1),
+      activityCount: _activities.length.toString(),
+      activeTime: _formatTotalTime(_totalDurationSeconds),
+      calories: _totalCalories.toStringAsFixed(0),
+      recentActivities:
+          _activities.take(3).map(_buildRecentActivityCard).toList(),
+      currentIndex: _currentIndex,
+      onRefresh: _loadUserDashboard,
+      onNavigationTapped: _onNavigationTapped,
+      onProfile: () => Navigator.pushNamed(context, '/profile')
+          .then((_) => _loadUserDashboard()),
+      onStartActivity: () {
+        Navigator.pushNamed(context, '/activity_selection');
+      },
+      onViewAll: () => Navigator.pushNamed(context, '/activity_history'),
     );
   }
 

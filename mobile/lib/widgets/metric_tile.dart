@@ -36,6 +36,7 @@ class MetricTile extends StatelessWidget {
           padding: const EdgeInsets.all(AppSpacing.lg),
           decoration: BoxDecoration(
             color: fill,
+            border: Border.all(color: theme.colorScheme.outlineVariant),
             borderRadius: BorderRadius.circular(AppRadii.panel),
           ),
           child: Column(

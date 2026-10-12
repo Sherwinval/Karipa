@@ -10,7 +10,8 @@ class StatusBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fill = KaripaPalette.approvedOr(color, KaripaPalette.stone);
+    final fill =
+        KaripaPalette.approvedOr(color, KaripaPalette.supportingSurface);
     final ink = KaripaPalette.onFill(fill);
     return Semantics(
       label: text,

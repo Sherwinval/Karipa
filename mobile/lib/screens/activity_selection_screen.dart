@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import '../theme/design_tokens.dart';
 
 class ActivitySelectionScreen extends StatefulWidget {
   const ActivitySelectionScreen({super.key});
 
   @override
-  State<ActivitySelectionScreen> createState() => _ActivitySelectionScreenState();
+  State<ActivitySelectionScreen> createState() =>
+      _ActivitySelectionScreenState();
 }
 
 class _ActivitySelectionScreenState extends State<ActivitySelectionScreen> {
@@ -16,37 +18,38 @@ class _ActivitySelectionScreenState extends State<ActivitySelectionScreen> {
       'title': 'Walking',
       'subtitle': 'Low impact, scenic strolls and pedestrian paths',
       'icon': Icons.directions_walk,
-      'color': Colors.green.shade600,
+      'color': KaripaPalette.coral,
     },
     {
       'id': 'jogging',
       'title': 'Jogging',
       'subtitle': 'Moderate aerobic pace, park loops and quiet streets',
       'icon': Icons.directions_run,
-      'color': Colors.teal.shade600,
+      'color': KaripaPalette.coral,
     },
     {
       'id': 'running',
       'title': 'Running',
       'subtitle': 'Higher tempo workouts with smooth continuous pavement',
       'icon': Icons.directions_run_outlined,
-      'color': Colors.orange.shade700,
+      'color': KaripaPalette.coral,
     },
     {
       'id': 'cycling',
       'title': 'Cycling',
       'subtitle': 'Bike lanes, wider paved roads, and distance circuits',
       'icon': Icons.directions_bike,
-      'color': Colors.blue.shade700,
+      'color': KaripaPalette.coral,
     },
   ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: AppBar(
-        title: const Text('Choose Activity', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text('Choose Activity',
+            style: TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -56,22 +59,23 @@ class _ActivitySelectionScreenState extends State<ActivitySelectionScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text(
+              Text(
                 'What workout are you planning today?',
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFF0F172A),
+                  color: Theme.of(context).colorScheme.onSurface,
                   letterSpacing: -0.5,
                 ),
               ),
               const SizedBox(height: 6),
               Text(
                 'Karipa will tailor route characteristics and speed profiles to your selected activity.',
-                style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+                style: TextStyle(
+                    fontSize: 14,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant),
               ),
               const SizedBox(height: 24),
-
               Expanded(
                 child: ListView.separated(
                   itemCount: _activities.length,
@@ -90,19 +94,20 @@ class _ActivitySelectionScreenState extends State<ActivitySelectionScreen> {
                         duration: const Duration(milliseconds: 200),
                         padding: const EdgeInsets.all(18),
                         decoration: BoxDecoration(
-                          color: isSelected ? const Color(0xFF0D9488).withOpacity(0.08) : Colors.white,
+                          color: Theme.of(context).colorScheme.surface,
                           borderRadius: BorderRadius.circular(18),
                           border: Border.all(
-                            color: isSelected ? const Color(0xFF0D9488) : Colors.grey.shade200,
-                            width: isSelected ? 2.0 : 1.0,
+                            color: isSelected
+                                ? KaripaPalette.midnight
+                                : Theme.of(context).colorScheme.outlineVariant,
+                            width: isSelected ? 1.5 : 1.0,
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: isSelected
-                                  ? const Color(0xFF0D9488).withOpacity(0.12)
-                                  : Colors.black.withOpacity(0.02),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
+                              color: KaripaPalette.midnight
+                                  .withValues(alpha: isSelected ? 0.14 : 0.08),
+                              blurRadius: isSelected ? 16 : 12,
+                              offset: const Offset(0, 6),
                             ),
                           ],
                         ),
@@ -112,10 +117,11 @@ class _ActivitySelectionScreenState extends State<ActivitySelectionScreen> {
                               width: 52,
                               height: 52,
                               decoration: BoxDecoration(
-                                color: color.withOpacity(0.12),
+                                color: color,
                                 borderRadius: BorderRadius.circular(14),
                               ),
-                              child: Icon(item['icon'] as IconData, color: color, size: 28),
+                              child: Icon(item['icon'] as IconData,
+                                  color: KaripaPalette.midnight, size: 28),
                             ),
                             const SizedBox(width: 16),
                             Expanded(
@@ -127,13 +133,23 @@ class _ActivitySelectionScreenState extends State<ActivitySelectionScreen> {
                                     style: TextStyle(
                                       fontSize: 17,
                                       fontWeight: FontWeight.bold,
-                                      color: isSelected ? const Color(0xFF0D9488) : const Color(0xFF0F172A),
+                                      color: isSelected
+                                          ? Theme.of(context)
+                                              .colorScheme
+                                              .onSurface
+                                          : Theme.of(context)
+                                              .colorScheme
+                                              .onSurface,
                                     ),
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
                                     item['subtitle'],
-                                    style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                                    style: TextStyle(
+                                        fontSize: 13,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant),
                                   ),
                                 ],
                               ),
@@ -144,14 +160,19 @@ class _ActivitySelectionScreenState extends State<ActivitySelectionScreen> {
                               height: 24,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                color: isSelected ? const Color(0xFF0D9488) : Colors.transparent,
+                                color: isSelected
+                                    ? KaripaPalette.coral
+                                    : Colors.transparent,
                                 border: Border.all(
-                                  color: isSelected ? const Color(0xFF0D9488) : Colors.grey.shade300,
+                                  color: isSelected
+                                      ? Theme.of(context).colorScheme.outline
+                                      : Theme.of(context).colorScheme.outline,
                                   width: 2,
                                 ),
                               ),
                               child: isSelected
-                                  ? const Icon(Icons.check, size: 16, color: Colors.white)
+                                  ? const Icon(Icons.check,
+                                      size: 16, color: KaripaPalette.midnight)
                                   : null,
                             ),
                           ],
@@ -161,7 +182,6 @@ class _ActivitySelectionScreenState extends State<ActivitySelectionScreen> {
                   },
                 ),
               ),
-
               ElevatedButton(
                 onPressed: () {
                   Navigator.pushNamed(
@@ -171,10 +191,11 @@ class _ActivitySelectionScreenState extends State<ActivitySelectionScreen> {
                   );
                 },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF0D9488),
-                  foregroundColor: Colors.white,
+                  backgroundColor: KaripaPalette.coral,
+                  foregroundColor: KaripaPalette.midnight,
                   minimumSize: const Size.fromHeight(54),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
                   elevation: 1,
                 ),
                 child: const Text(

@@ -1,14 +1,23 @@
 import 'package:flutter/material.dart';
 
-/// Approved Karipa identity. Do not generate extra seed-color tones.
+/// Stage 1 Karipa identity, paired with the unmodified official artwork.
 abstract final class KaripaPalette {
-  static const coral = Color(0xFFFF5A49);
-  static const midnight = Color(0xFF0C0B10);
+  static const white = Color(0xFFFFFFFF);
+  static const contentBackground = white;
+
+  /// Warm light-mode canvas used only by Home; content surfaces stay white.
+  static const homeBackground = Color(0xFFF6F5F1);
+  static const supportingSurface = ivory;
+  static const orange = Color(0xFFFF5A24);
+  static const navy = Color(0xFF1A1E27);
+  // Compatibility names used by existing screens and theme roles.
+  static const coral = orange;
+  static const midnight = navy;
   static const stone = Color(0xFFCFCDBE);
   static const ivory = Color(0xFFE3E0D3);
   static const charcoal = Color(0xFF2B2B2B);
 
-  static const values = [coral, midnight, stone, ivory, charcoal];
+  static const values = [white, coral, midnight, stone, ivory, charcoal];
 
   /// Keeps legacy optional color arguments source-compatible without carrying
   /// their old decorative palette into shared components.

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/design_tokens.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import '../models/route_model.dart';
@@ -26,10 +27,11 @@ class RecommendedRoutesScreen extends StatelessWidget {
         : null;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: AppBar(
-        title: const Text('Recommended Routes', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
+        title: const Text('Recommended Routes',
+            style: TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: Theme.of(context).colorScheme.surface,
         elevation: 0,
       ),
       body: SafeArea(
@@ -40,19 +42,22 @@ class RecommendedRoutesScreen extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: Theme.of(context).colorScheme.surface,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.grey.shade200),
+                border:
+                    Border.all(color: Theme.of(context).colorScheme.outline),
               ),
               child: Row(
                 children: [
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF0D9488).withOpacity(0.12),
+                      color: Theme.of(context).colorScheme.surfaceContainer,
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Icon(Icons.explore, color: Color(0xFF0D9488), size: 24),
+                    child: Icon(Icons.explore,
+                        color: Theme.of(context).colorScheme.onSurface,
+                        size: 24),
                   ),
                   const SizedBox(width: 14),
                   Expanded(
@@ -64,17 +69,18 @@ class RecommendedRoutesScreen extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
-                            color: Colors.grey.shade600,
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant,
                             letterSpacing: 0.8,
                           ),
                         ),
                         const SizedBox(height: 2),
                         Text(
                           '${routes.length} Candidate Routes Ranked by AI',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFF0F172A),
+                            color: Theme.of(context).colorScheme.onSurface,
                           ),
                         ),
                       ],
@@ -85,30 +91,34 @@ class RecommendedRoutesScreen extends StatelessWidget {
             ),
             const SizedBox(height: 20),
 
-            ...routes.map((route) => _buildRouteCard(context, route, userLatLng)),
+            ...routes
+                .map((route) => _buildRouteCard(context, route, userLatLng)),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildRouteCard(BuildContext context, PathRoute route, LatLng? userLocation) {
+  Widget _buildRouteCard(
+      BuildContext context, PathRoute route, LatLng? userLocation) {
     final isTop = route.isTopRecommendation;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: isTop ? const Color(0xFF0D9488) : Colors.grey.shade200,
+          color: isTop
+              ? Theme.of(context).colorScheme.outline
+              : Theme.of(context).colorScheme.outline,
           width: isTop ? 2.0 : 1.0,
         ),
         boxShadow: [
           BoxShadow(
             color: isTop
-                ? const Color(0xFF0D9488).withOpacity(0.12)
-                : Colors.black.withOpacity(0.03),
+                ? KaripaPalette.midnight.withOpacity(0.12)
+                : KaripaPalette.midnight.withOpacity(0.03),
             blurRadius: 14,
             offset: const Offset(0, 5),
           ),
@@ -127,26 +137,29 @@ class RecommendedRoutesScreen extends StatelessWidget {
                   children: [
                     StatusBadge(
                       text: route.matchLabel,
-                      color: isTop ? const Color(0xFF0D9488) : Colors.indigo.shade600,
+                      color: isTop
+                          ? Theme.of(context).colorScheme.onSurface
+                          : Theme.of(context).colorScheme.onSurface,
                       icon: isTop ? Icons.star : Icons.thumb_up_alt_outlined,
                     ),
                     const SizedBox(width: 8),
                     StatusBadge(
                       text: route.suitability,
-                      color: Colors.blueGrey.shade700,
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
                   ],
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF0D9488).withOpacity(0.1),
+                    color: Theme.of(context).colorScheme.surfaceContainer,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
                     '${route.score.toStringAsFixed(0)}% MATCH',
-                    style: const TextStyle(
-                      color: Color(0xFF0D9488),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurface,
                       fontWeight: FontWeight.bold,
                       fontSize: 12,
                     ),
@@ -164,22 +177,24 @@ class RecommendedRoutesScreen extends StatelessWidget {
               children: [
                 Text(
                   route.name,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 19,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF0F172A),
+                    color: Theme.of(context).colorScheme.onSurface,
                     letterSpacing: -0.3,
                   ),
                 ),
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    _buildMetricChip(Icons.straighten, '${route.distanceKm.toStringAsFixed(2)} km'),
+                    _buildMetricChip(context, Icons.straighten,
+                        '${route.distanceKm.toStringAsFixed(2)} km'),
                     const SizedBox(width: 12),
-                    _buildMetricChip(Icons.timer_outlined, route.formattedDuration),
+                    _buildMetricChip(
+                        context, Icons.timer_outlined, route.formattedDuration),
                     if (route.features['isLoop'] == true) ...[
                       const SizedBox(width: 12),
-                      _buildMetricChip(Icons.loop, 'Loop Circuit'),
+                      _buildMetricChip(context, Icons.loop, 'Loop Circuit'),
                     ],
                   ],
                 ),
@@ -188,7 +203,7 @@ class RecommendedRoutesScreen extends StatelessWidget {
                   route.reasoning,
                   style: TextStyle(
                     fontSize: 13,
-                    color: Colors.grey.shade600,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                     height: 1.3,
                   ),
                 ),
@@ -204,7 +219,8 @@ class RecommendedRoutesScreen extends StatelessWidget {
               margin: const EdgeInsets.symmetric(horizontal: 16),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.grey.shade200),
+                border:
+                    Border.all(color: Theme.of(context).colorScheme.outline),
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(14),
@@ -233,16 +249,22 @@ class RecommendedRoutesScreen extends StatelessWidget {
                 );
               },
               style: ElevatedButton.styleFrom(
-                backgroundColor: isTop ? const Color(0xFF0D9488) : const Color(0xFF1E293B),
-                foregroundColor: Colors.white,
+                backgroundColor: isTop
+                    ? KaripaPalette.coral
+                    : Theme.of(context).colorScheme.surfaceContainer,
+                foregroundColor: isTop
+                    ? KaripaPalette.midnight
+                    : Theme.of(context).colorScheme.onSurface,
                 minimumSize: const Size.fromHeight(48),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
                 elevation: 0,
               ),
               child: const Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text('View Route Details', style: TextStyle(fontWeight: FontWeight.bold)),
+                  Text('View Route Details',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
                   SizedBox(width: 6),
                   Icon(Icons.arrow_forward, size: 16),
                 ],
@@ -254,18 +276,18 @@ class RecommendedRoutesScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildMetricChip(IconData icon, String label) {
+  Widget _buildMetricChip(BuildContext context, IconData icon, String label) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 15, color: const Color(0xFF0D9488)),
+        Icon(icon, size: 15, color: Theme.of(context).colorScheme.onSurface),
         const SizedBox(width: 4),
         Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.w600,
-            color: Color(0xFF334155),
+            color: Theme.of(context).colorScheme.onSurface,
           ),
         ),
       ],

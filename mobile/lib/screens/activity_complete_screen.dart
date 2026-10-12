@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/design_tokens.dart';
 import 'package:latlong2/latlong.dart';
 import '../models/route_model.dart';
 import '../widgets/metric_tile.dart';
@@ -33,10 +34,11 @@ class ActivityCompleteScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: AppBar(
-        title: const Text('Activity Summary', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
+        title: const Text('Activity Summary',
+            style: TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: Theme.of(context).colorScheme.surface,
         elevation: 0,
         automaticallyImplyLeading: false,
       ),
@@ -52,24 +54,24 @@ class ActivityCompleteScreen extends StatelessWidget {
                   width: 80,
                   height: 80,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF0D9488).withOpacity(0.12),
+                    color: Theme.of(context).colorScheme.surfaceContainer,
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(
+                  child: Icon(
                     Icons.emoji_events,
                     size: 46,
-                    color: Color(0xFF0D9488),
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
                 ),
               ),
               const SizedBox(height: 16),
-              const Text(
+              Text(
                 'Activity Complete! 🎉',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 26,
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFF0F172A),
+                  color: Theme.of(context).colorScheme.onSurface,
                   letterSpacing: -0.5,
                 ),
               ),
@@ -77,7 +79,9 @@ class ActivityCompleteScreen extends StatelessWidget {
               Text(
                 'Great job! Your ${activityType.toLowerCase()} workout has been recorded and saved.',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+                style: TextStyle(
+                    fontSize: 14,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant),
               ),
               const SizedBox(height: 28),
 
@@ -87,7 +91,8 @@ class ActivityCompleteScreen extends StatelessWidget {
                   height: 200,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: Colors.grey.shade200),
+                    border: Border.all(
+                        color: Theme.of(context).colorScheme.outline),
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(18),
@@ -110,7 +115,7 @@ class ActivityCompleteScreen extends StatelessWidget {
                       value: distanceKm.toStringAsFixed(2),
                       unit: 'km',
                       icon: Icons.straighten,
-                      color: const Color(0xFF0D9488),
+                      color: KaripaPalette.coral,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -119,7 +124,7 @@ class ActivityCompleteScreen extends StatelessWidget {
                       label: 'Duration',
                       value: _formatDuration(durationSeconds),
                       icon: Icons.timer_outlined,
-                      color: Colors.indigo.shade600,
+                      color: KaripaPalette.coral,
                     ),
                   ),
                 ],
@@ -129,10 +134,12 @@ class ActivityCompleteScreen extends StatelessWidget {
                 children: [
                   Expanded(
                     child: MetricTile(
-                      label: activityType.toLowerCase() == 'cycling' ? 'Avg Speed' : 'Avg Pace',
+                      label: activityType.toLowerCase() == 'cycling'
+                          ? 'Avg Speed'
+                          : 'Avg Pace',
                       value: paceOrSpeed,
                       icon: Icons.speed,
-                      color: Colors.blue.shade700,
+                      color: KaripaPalette.coral,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -142,7 +149,7 @@ class ActivityCompleteScreen extends StatelessWidget {
                       value: calories.toStringAsFixed(0),
                       unit: 'kcal',
                       icon: Icons.local_fire_department,
-                      color: Colors.orange.shade700,
+                      color: KaripaPalette.coral,
                     ),
                   ),
                 ],
@@ -152,16 +159,20 @@ class ActivityCompleteScreen extends StatelessWidget {
               // Actions
               ElevatedButton(
                 onPressed: () {
-                  Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
+                  Navigator.pushNamedAndRemoveUntil(
+                      context, '/home', (route) => false);
                 },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF0D9488),
-                  foregroundColor: Colors.white,
+                  backgroundColor: KaripaPalette.coral,
+                  foregroundColor: KaripaPalette.midnight,
                   minimumSize: const Size.fromHeight(54),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
                   elevation: 1,
                 ),
-                child: const Text('Back to Home Dashboard', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                child: const Text('Back to Home Dashboard',
+                    style:
+                        TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               ),
               const SizedBox(height: 12),
               OutlinedButton(
@@ -170,11 +181,15 @@ class ActivityCompleteScreen extends StatelessWidget {
                 },
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size.fromHeight(50),
-                  foregroundColor: const Color(0xFF0D9488),
-                  side: const BorderSide(color: Color(0xFF0D9488)),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  foregroundColor: Theme.of(context).colorScheme.onSurface,
+                  side:
+                      BorderSide(color: Theme.of(context).colorScheme.outline),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
                 ),
-                child: const Text('View All Activity History', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                child: const Text('View All Activity History',
+                    style:
+                        TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
               ),
             ],
           ),

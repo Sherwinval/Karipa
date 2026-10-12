@@ -54,8 +54,8 @@ class PathCraftColors extends ThemeExtension<PathCraftColors> {
     accentDark: KaripaPalette.charcoal,
     // Legacy identifier retained for compatibility; no lime color remains.
     lime: KaripaPalette.coral,
-    pageBackground: KaripaPalette.ivory,
-    surface: KaripaPalette.stone,
+    pageBackground: KaripaPalette.contentBackground,
+    surface: KaripaPalette.contentBackground,
     border: KaripaPalette.charcoal,
     borderDark: KaripaPalette.midnight,
     mutedText: KaripaPalette.charcoal,
@@ -176,7 +176,8 @@ class AppTheme {
       surface: scheme.surfaceContainerLow,
       border: scheme.outline,
       mutedText: dark ? KaripaPalette.stone : KaripaPalette.charcoal,
-      mutedLight: dark ? KaripaPalette.charcoal : KaripaPalette.stone,
+      mutedLight:
+          dark ? KaripaPalette.charcoal : KaripaPalette.supportingSurface,
       success: scheme.onSurface,
       successLight: scheme.surfaceContainerLow,
       warning: scheme.onSurface,
@@ -259,13 +260,28 @@ class AppTheme {
         titleTextStyle: text.titleLarge,
         centerTitle: false,
       ),
+      drawerTheme: DrawerThemeData(
+          backgroundColor: scheme.surfaceContainer,
+          surfaceTintColor: scheme.surfaceContainer),
+      navigationRailTheme: NavigationRailThemeData(
+          backgroundColor: scheme.surfaceContainer,
+          indicatorColor: scheme.primary),
+      bottomSheetTheme: BottomSheetThemeData(
+          backgroundColor: scheme.surfaceContainer,
+          modalBackgroundColor: scheme.surfaceContainer,
+          surfaceTintColor: scheme.surfaceContainer),
+      dialogTheme: DialogThemeData(
+          backgroundColor: scheme.surface, surfaceTintColor: scheme.surface),
+      popupMenuTheme: PopupMenuThemeData(
+          color: scheme.surface, surfaceTintColor: scheme.surface),
       cardTheme: CardThemeData(
         elevation: 0,
         margin: EdgeInsets.zero,
         color: scheme.surfaceContainerLow,
         surfaceTintColor: scheme.surfaceContainerLow,
         shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppRadii.card)),
+            borderRadius: BorderRadius.circular(AppRadii.card),
+            side: BorderSide(color: scheme.outlineVariant)),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
@@ -284,8 +300,8 @@ class AppTheme {
       ),
       navigationBarTheme: NavigationBarThemeData(
         height: AppSizes.navigationHeight,
-        backgroundColor: scheme.surface,
-        surfaceTintColor: scheme.surface,
+        backgroundColor: scheme.surfaceContainer,
+        surfaceTintColor: scheme.surfaceContainer,
         indicatorColor: scheme.primary,
         indicatorShape:
             StadiumBorder(side: BorderSide(color: scheme.outline, width: 1.5)),
@@ -298,7 +314,7 @@ class AppTheme {
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
       ),
       bottomNavigationBarTheme: BottomNavigationBarThemeData(
-        backgroundColor: scheme.surface,
+        backgroundColor: scheme.surfaceContainer,
         selectedItemColor: dark ? scheme.primary : scheme.onSurface,
         unselectedItemColor: scheme.onSurfaceVariant,
         selectedLabelStyle:
@@ -309,9 +325,9 @@ class AppTheme {
         elevation: 0,
       ),
       chipTheme: ChipThemeData(
-        backgroundColor: KaripaPalette.stone,
+        backgroundColor: KaripaPalette.supportingSurface,
         selectedColor: scheme.primary,
-        disabledColor: KaripaPalette.stone,
+        disabledColor: KaripaPalette.supportingSurface,
         labelStyle: text.labelMedium?.copyWith(color: KaripaPalette.midnight),
         checkmarkColor: scheme.onPrimary,
         side: BorderSide(color: scheme.outline),
@@ -369,8 +385,10 @@ class AppTheme {
 
   static ColorScheme _colorScheme(Brightness brightness) {
     final dark = brightness == Brightness.dark;
-    final surface = dark ? KaripaPalette.midnight : KaripaPalette.ivory;
-    final container = dark ? KaripaPalette.charcoal : KaripaPalette.stone;
+    final surface =
+        dark ? KaripaPalette.midnight : KaripaPalette.contentBackground;
+    final container =
+        dark ? KaripaPalette.charcoal : KaripaPalette.supportingSurface;
     final ink = dark ? KaripaPalette.ivory : KaripaPalette.midnight;
     return ColorScheme(
       brightness: brightness,
@@ -407,7 +425,7 @@ class AppTheme {
       surfaceDim: container,
       surfaceBright: surface,
       surfaceContainerLowest: surface,
-      surfaceContainerLow: container,
+      surfaceContainerLow: surface,
       surfaceContainer: container,
       surfaceContainerHigh: container,
       surfaceContainerHighest: container,

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../theme/design_tokens.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import '../models/route_model.dart';
@@ -203,8 +204,8 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red.shade600,
-              foregroundColor: Colors.white,
+              backgroundColor: KaripaPalette.coral,
+              foregroundColor: KaripaPalette.midnight,
             ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Finish Activity'),
@@ -233,7 +234,8 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
         activityType: widget.activity,
         distanceMeters: _traveledDistanceMeters,
         durationSeconds: _activeSeconds,
-        averagePaceSecondsPerKm: _paceSecondsPerKm > 0 ? _paceSecondsPerKm : null,
+        averagePaceSecondsPerKm:
+            _paceSecondsPerKm > 0 ? _paceSecondsPerKm : null,
         averageSpeedKmh: _speedKmh > 0 ? _speedKmh : null,
         calories: _caloriesBurned,
         startedAt: _startedAt,
@@ -280,28 +282,35 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
         await _confirmFinishActivity();
       },
       child: Scaffold(
-        backgroundColor: const Color(0xFF0F172A), // Sleek dark tracking UI
+        backgroundColor:
+            Theme.of(context).colorScheme.surface, // Sleek dark tracking UI
         body: SafeArea(
           child: Column(
             children: [
               // Header bar
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Row(
                       children: [
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 4),
                           decoration: BoxDecoration(
-                            color: _isPaused ? Colors.amber.shade700 : const Color(0xFF14B8A6),
+                            color: _isPaused
+                                ? Theme.of(context).colorScheme.surfaceContainer
+                                : Theme.of(context)
+                                    .colorScheme
+                                    .surfaceContainer,
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Text(
                             _isPaused ? 'PAUSED' : 'TRACKING LIVE',
-                            style: const TextStyle(
-                              color: Colors.white,
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.onSurface,
                               fontSize: 11,
                               fontWeight: FontWeight.bold,
                               letterSpacing: 0.8,
@@ -311,8 +320,8 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
                         const SizedBox(width: 10),
                         Text(
                           widget.activity.toUpperCase(),
-                          style: const TextStyle(
-                            color: Colors.white,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onSurface,
                             fontSize: 15,
                             fontWeight: FontWeight.bold,
                           ),
@@ -320,7 +329,8 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
                       ],
                     ),
                     IconButton(
-                      icon: const Icon(Icons.close, color: Colors.white70),
+                      icon: Icon(Icons.close,
+                          color: Theme.of(context).colorScheme.onSurface),
                       onPressed: _confirmFinishActivity,
                     ),
                   ],
@@ -364,7 +374,9 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
                                 style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
-                                  color: Colors.grey.shade400,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
                                   letterSpacing: 0.8,
                                 ),
                               ),
@@ -375,10 +387,12 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
                                 children: [
                                   Text(
                                     _traveledDistanceKm.toStringAsFixed(2),
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontSize: 38,
                                       fontWeight: FontWeight.bold,
-                                      color: Colors.white,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurface,
                                       letterSpacing: -1.0,
                                     ),
                                   ),
@@ -388,14 +402,19 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
                                     style: TextStyle(
                                       fontSize: 16,
                                       fontWeight: FontWeight.w600,
-                                      color: Colors.grey.shade400,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant,
                                     ),
                                   ),
                                 ],
                               ),
                             ],
                           ),
-                          Container(height: 48, width: 1, color: Colors.white12),
+                          Container(
+                              height: 48,
+                              width: 1,
+                              color: Theme.of(context).colorScheme.outline),
                           Column(
                             children: [
                               Text(
@@ -403,17 +422,20 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
                                 style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
-                                  color: Colors.grey.shade400,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
                                   letterSpacing: 0.8,
                                 ),
                               ),
                               const SizedBox(height: 4),
                               Text(
                                 _formattedActiveTime,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 38,
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.white,
+                                  color:
+                                      Theme.of(context).colorScheme.onSurface,
                                   letterSpacing: -1.0,
                                 ),
                               ),
@@ -467,8 +489,9 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
 
                       // Control Actions (Pause/Resume & Finish)
                       if (_isSaving)
-                        const Center(
-                          child: CircularProgressIndicator(color: Color(0xFF14B8A6)),
+                        Center(
+                          child: CircularProgressIndicator(
+                              color: Theme.of(context).colorScheme.onSurface),
                         )
                       else
                         Row(
@@ -479,15 +502,27 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
                               child: ElevatedButton.icon(
                                 onPressed: _togglePause,
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: _isPaused ? const Color(0xFF14B8A6) : const Color(0xFF334155),
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(vertical: 16),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                  backgroundColor: _isPaused
+                                      ? KaripaPalette.coral
+                                      : Theme.of(context)
+                                          .colorScheme
+                                          .surfaceContainer,
+                                  foregroundColor: _isPaused
+                                      ? KaripaPalette.midnight
+                                      : Theme.of(context).colorScheme.onSurface,
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 16),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(16)),
                                 ),
-                                icon: Icon(_isPaused ? Icons.play_arrow : Icons.pause, size: 22),
+                                icon: Icon(
+                                    _isPaused ? Icons.play_arrow : Icons.pause,
+                                    size: 22),
                                 label: Text(
                                   _isPaused ? 'Resume' : 'Pause',
-                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                  style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold),
                                 ),
                               ),
                             ),
@@ -499,15 +534,19 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
                               child: ElevatedButton.icon(
                                 onPressed: _confirmFinishActivity,
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.red.shade700,
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(vertical: 16),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                  backgroundColor: KaripaPalette.coral,
+                                  foregroundColor: KaripaPalette.midnight,
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 16),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(16)),
                                 ),
                                 icon: const Icon(Icons.stop, size: 22),
                                 label: const Text(
                                   'Finish',
-                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                  style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold),
                                 ),
                               ),
                             ),
@@ -528,23 +567,24 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
+        color: Theme.of(context).colorScheme.surfaceContainer,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
+        border: Border.all(color: Theme.of(context).colorScheme.outline),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(icon, size: 14, color: const Color(0xFF14B8A6)),
+              Icon(icon,
+                  size: 14, color: Theme.of(context).colorScheme.onSurface),
               const SizedBox(width: 6),
               Text(
                 label,
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.bold,
-                  color: Colors.grey.shade400,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                   letterSpacing: 0.6,
                 ),
               ),
@@ -553,10 +593,10 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
           const SizedBox(height: 4),
           Text(
             value,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
-              color: Colors.white,
+              color: Theme.of(context).colorScheme.onSurface,
             ),
           ),
         ],

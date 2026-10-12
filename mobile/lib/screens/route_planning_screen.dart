@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/design_tokens.dart';
 import '../services/location_service.dart';
 import '../services/api_service.dart';
 
@@ -13,7 +14,8 @@ class RoutePlanningScreen extends StatefulWidget {
 
 class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
   double _targetDistanceKm = 5.0;
-  final TextEditingController _customDistanceController = TextEditingController();
+  final TextEditingController _customDistanceController =
+      TextEditingController();
   bool _isCustomDistance = false;
 
   bool _avoidMajorRoads = true;
@@ -44,19 +46,24 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
 
     try {
       // 1. Acquire real GPS Location
-      final permissionStatus = await LocationService.checkAndRequestPermission();
+      final permissionStatus =
+          await LocationService.checkAndRequestPermission();
 
       if (permissionStatus == LocationStatus.serviceDisabled) {
-        throw Exception('Location services are turned off on your device. Please enable GPS in your device settings.');
+        throw Exception(
+            'Location services are turned off on your device. Please enable GPS in your device settings.');
       } else if (permissionStatus == LocationStatus.permissionDenied) {
-        throw Exception('Location permission was denied. Karipa requires location to generate routes starting from your position.');
+        throw Exception(
+            'Location permission was denied. Karipa requires location to generate routes starting from your position.');
       } else if (permissionStatus == LocationStatus.permissionDeniedForever) {
-        throw Exception('Location permissions are permanently denied. Please open App Settings to grant location access.');
+        throw Exception(
+            'Location permissions are permanently denied. Please open App Settings to grant location access.');
       }
 
       final position = await LocationService.getCurrentPosition();
       if (position == null) {
-        throw Exception('Could not determine current GPS position. Please check your signal and try again.');
+        throw Exception(
+            'Could not determine current GPS position. Please check your signal and try again.');
       }
 
       final distance = _isCustomDistance
@@ -64,7 +71,8 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
           : _targetDistanceKm;
 
       if (distance <= 0.2 || distance > 100) {
-        throw Exception('Please specify a valid distance between 0.5 km and 100 km.');
+        throw Exception(
+            'Please specify a valid distance between 0.5 km and 100 km.');
       }
 
       // 2. Call backend Route Generation API
@@ -85,7 +93,8 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
       setState(() => _isGenerating = false);
 
       if (routes.isEmpty) {
-        throw Exception('No routes could be generated around this area. Try selecting a different distance.');
+        throw Exception(
+            'No routes could be generated around this area. Try selecting a different distance.');
       }
 
       Navigator.pushNamed(
@@ -110,7 +119,7 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: AppBar(
         title: Text(
           'Plan ${widget.activity.toUpperCase()}',
@@ -128,21 +137,22 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
               // Target Distance Card
               Container(
                 padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: Colors.grey.shade200),
-                ),
+                decoration: _panelDecoration(context),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       children: [
-                        const Icon(Icons.straighten, color: Color(0xFF0D9488), size: 22),
+                        Icon(Icons.straighten,
+                            color: Theme.of(context).colorScheme.onSurface,
+                            size: 22),
                         const SizedBox(width: 8),
-                        const Text(
+                        Text(
                           'Target Distance',
-                          style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                          style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.bold,
+                              color: Theme.of(context).colorScheme.onSurface),
                         ),
                       ],
                     ),
@@ -162,11 +172,13 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                       const SizedBox(height: 16),
                       TextField(
                         controller: _customDistanceController,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true),
                         decoration: InputDecoration(
                           labelText: 'Custom Distance in Kilometers',
                           suffixText: 'km',
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12)),
                         ),
                       ),
                     ],
@@ -178,64 +190,74 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
               // Route Preferences Card
               Container(
                 padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: Colors.grey.shade200),
-                ),
+                decoration: _panelDecoration(context),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       children: [
-                        const Icon(Icons.tune, color: Color(0xFF0D9488), size: 22),
+                        Icon(Icons.tune,
+                            color: Theme.of(context).colorScheme.onSurface,
+                            size: 22),
                         const SizedBox(width: 8),
-                        const Text(
+                        Text(
                           'Route Preferences',
-                          style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                          style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.bold,
+                              color: Theme.of(context).colorScheme.onSurface),
                         ),
                       ],
                     ),
                     const SizedBox(height: 14),
-
                     SwitchListTile.adaptive(
                       contentPadding: EdgeInsets.zero,
-                      activeColor: const Color(0xFF0D9488),
-                      title: const Text('Prefer Circular Loop', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
-                      subtitle: const Text('Route starts and finishes at your current location', style: TextStyle(fontSize: 12)),
+                      title: const Text('Prefer Circular Loop',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 15)),
+                      subtitle: const Text(
+                          'Route starts and finishes at your current location',
+                          style: TextStyle(fontSize: 12)),
                       value: _preferLoop,
                       onChanged: (v) => setState(() => _preferLoop = v),
                     ),
                     const Divider(),
-
                     SwitchListTile.adaptive(
                       contentPadding: EdgeInsets.zero,
-                      activeColor: const Color(0xFF0D9488),
-                      title: const Text('Avoid Major Roads', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
-                      subtitle: const Text('Prioritizes quieter residential streets and paths', style: TextStyle(fontSize: 12)),
+                      title: const Text('Avoid Major Roads',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 15)),
+                      subtitle: const Text(
+                          'Prioritizes quieter residential streets and paths',
+                          style: TextStyle(fontSize: 12)),
                       value: _avoidMajorRoads,
                       onChanged: (v) => setState(() => _avoidMajorRoads = v),
                     ),
                     const Divider(),
-
                     SwitchListTile.adaptive(
                       contentPadding: EdgeInsets.zero,
-                      activeColor: const Color(0xFF0D9488),
-                      title: const Text('Prioritize Sidewalks & Trails', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
-                      subtitle: const Text('Prefers pedestrian-designated paths and footways', style: TextStyle(fontSize: 12)),
+                      title: const Text('Prioritize Sidewalks & Trails',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 15)),
+                      subtitle: const Text(
+                          'Prefers pedestrian-designated paths and footways',
+                          style: TextStyle(fontSize: 12)),
                       value: _preferSidewalks,
                       onChanged: (v) => setState(() => _preferSidewalks = v),
                     ),
-
                     if (widget.activity.toLowerCase() == 'cycling') ...[
                       const Divider(),
                       SwitchListTile.adaptive(
                         contentPadding: EdgeInsets.zero,
-                        activeColor: const Color(0xFF0D9488),
-                        title: const Text('Cycling Infrastructure', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
-                        subtitle: const Text('Prioritize designated bicycle paths and wide lanes', style: TextStyle(fontSize: 12)),
+                        title: const Text('Cycling Infrastructure',
+                            style: TextStyle(
+                                fontWeight: FontWeight.w600, fontSize: 15)),
+                        subtitle: const Text(
+                            'Prioritize designated bicycle paths and wide lanes',
+                            style: TextStyle(fontSize: 12)),
                         value: _preferCyclingLanes,
-                        onChanged: (v) => setState(() => _preferCyclingLanes = v),
+                        onChanged: (v) =>
+                            setState(() => _preferCyclingLanes = v),
                       ),
                     ],
                   ],
@@ -248,18 +270,23 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                   padding: const EdgeInsets.all(14),
                   margin: const EdgeInsets.only(bottom: 20),
                   decoration: BoxDecoration(
-                    color: Colors.red.shade50,
+                    color: Theme.of(context).colorScheme.surfaceContainer,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.red.shade200),
+                    border: Border.all(
+                        color: Theme.of(context).colorScheme.outline),
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.error_outline, color: Colors.red.shade700, size: 20),
+                      Icon(Icons.error_outline,
+                          color: Theme.of(context).colorScheme.onSurface,
+                          size: 20),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
                           _errorMessage!,
-                          style: TextStyle(color: Colors.red.shade800, fontSize: 13),
+                          style: TextStyle(
+                              color: Theme.of(context).colorScheme.onSurface,
+                              fontSize: 13),
                         ),
                       ),
                     ],
@@ -269,10 +296,11 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
               ElevatedButton(
                 onPressed: _isGenerating ? null : _handleGenerateRoutes,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF0D9488),
-                  foregroundColor: Colors.white,
+                  backgroundColor: KaripaPalette.coral,
+                  foregroundColor: KaripaPalette.midnight,
                   minimumSize: const Size.fromHeight(54),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
                   elevation: 1,
                 ),
                 child: _isGenerating
@@ -282,10 +310,12 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                           SizedBox(
                             width: 20,
                             height: 20,
-                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                            child: CircularProgressIndicator(
+                                color: KaripaPalette.midnight, strokeWidth: 2),
                           ),
                           SizedBox(width: 12),
-                          Text('Generating & Ranking Routes...', style: TextStyle(fontWeight: FontWeight.bold)),
+                          Text('Generating & Ranking Routes...',
+                              style: TextStyle(fontWeight: FontWeight.bold)),
                         ],
                       )
                     : const Row(
@@ -295,7 +325,8 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                           SizedBox(width: 8),
                           Text(
                             'Generate Routes',
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                            style: TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.bold),
                           ),
                         ],
                       ),
@@ -307,15 +338,31 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
     );
   }
 
+  BoxDecoration _panelDecoration(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return BoxDecoration(
+      color: scheme.surface,
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(color: scheme.outlineVariant),
+      boxShadow: [
+        BoxShadow(
+          color: scheme.shadow.withValues(alpha: 0.10),
+          blurRadius: 16,
+          offset: const Offset(0, 6),
+        ),
+      ],
+    );
+  }
+
   Widget _buildPresetChip(double distance, String label) {
     final isSelected = !_isCustomDistance && _targetDistanceKm == distance;
     return Expanded(
       child: ChoiceChip(
         label: Text(label),
         selected: isSelected,
-        selectedColor: const Color(0xFF0D9488),
-        labelStyle: TextStyle(
-          color: isSelected ? Colors.white : const Color(0xFF0F172A),
+        selectedColor: KaripaPalette.coral,
+        labelStyle: const TextStyle(
+          color: KaripaPalette.midnight,
           fontWeight: FontWeight.w600,
         ),
         onSelected: (val) {
@@ -335,9 +382,9 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
       child: ChoiceChip(
         label: const Text('Custom'),
         selected: _isCustomDistance,
-        selectedColor: const Color(0xFF0D9488),
-        labelStyle: TextStyle(
-          color: _isCustomDistance ? Colors.white : const Color(0xFF0F172A),
+        selectedColor: KaripaPalette.coral,
+        labelStyle: const TextStyle(
+          color: KaripaPalette.midnight,
           fontWeight: FontWeight.w600,
         ),
         onSelected: (val) {

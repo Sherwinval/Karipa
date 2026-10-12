@@ -24,12 +24,15 @@ import 'screens/activity_details_screen.dart';
 import 'screens/profile_screen.dart';
 import 'theme/app_theme.dart';
 
+import 'services/theme_service.dart';
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AuthService()),
+        ChangeNotifierProvider(create: (_) => ThemeService()),
       ],
       child: const PathCraftApp(),
     ),
@@ -41,12 +44,14 @@ class PathCraftApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final themeService = Provider.of<ThemeService>(context);
+
     return MaterialApp(
       title: 'Karipa',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
-      themeMode: ThemeMode.light,
+      themeMode: themeService.themeMode,
       initialRoute: '/',
       onGenerateRoute: (settings) {
         final args = settings.arguments as Map<String, dynamic>?;
