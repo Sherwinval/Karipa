@@ -156,6 +156,10 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
         setState(() {
           _currentPosition = recordedPoint.toLatLng();
 
+          // Keep the live marker responsive, but exclude imprecise fixes from
+          // the saved track and distance calculations.
+          if (recordedPoint.accuracy > 30.0) return;
+
           // Calculate real movement delta from last recorded point
           if (_recordedGpsPoints.isNotEmpty) {
             final lastPoint = _recordedGpsPoints.last;
@@ -228,9 +232,10 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
     final completedAt = DateTime.now();
 
     final gpsDataList = _recordedGpsPoints.map((p) => p.toJson()).toList();
+    late final bool savedLocally;
 
     try {
-      await ApiService.saveActivity(
+      final result = await ApiService.saveActivity(
         activityType: widget.activity,
         distanceMeters: _traveledDistanceMeters,
         durationSeconds: _activeSeconds,
@@ -243,8 +248,24 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
         gpsData: gpsDataList,
         routeData: widget.route.rawJson,
       );
+      if (result['success'] != true) {
+        throw Exception(result['message'] ?? 'Failed to save activity');
+      }
+      savedLocally = result['localOnly'] == true;
     } catch (e) {
-      debugPrint('Failed to save activity to backend: $e');
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+      _startActiveTimer();
+      _startGpsStream();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Could not save activity: ${e.toString().replaceFirst('Exception: ', '')}',
+          ),
+          duration: const Duration(seconds: 6),
+        ),
+      );
+      return;
     }
 
     if (!mounted) return;
@@ -260,6 +281,7 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
         'calories': _caloriesBurned,
         'route': widget.route,
         'gpsPoints': _trackedLatLngs,
+        'savedLocally': savedLocally,
       },
     );
   }

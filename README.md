@@ -146,6 +146,12 @@ Open a third terminal:
    ```
 
 > **Note for Android Emulator:** The backend address accessed from the emulator is `http://10.0.2.2:3000` instead of `http://localhost:3000`.
+>
+> **Physical Android device:** A phone cannot use the emulator-only `10.0.2.2` address. Connect the phone and development computer to the same Wi-Fi network, find the computer's LAN IPv4 address (for example, `192.168.1.25`), then start the app with that address:
+> ```powershell
+> flutter run --dart-define=API_BASE_URL=http://192.168.1.25:3000/api
+> ```
+> Replace the example address with the computer's current LAN IP. Check `http://<computer-LAN-IP>:3000/api/health` in the phone's browser first; if it cannot load, allow inbound TCP port 3000 through the computer's firewall and check that the Wi-Fi network allows device-to-device connections. The API override applies to all Flutter API calls. Plain HTTP is permitted only in Android debug builds; use HTTPS for release builds.
 > 
 > **Tip - Setting Emulator Location:** By default, Android Emulators report a fixed default location. To automatically set the emulator's GPS location based on where you are (or a specific city/coordinates), run the included helper script in the project root:
 > ```powershell

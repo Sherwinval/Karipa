@@ -80,17 +80,14 @@ class LocationService {
   static Stream<RecordedPoint> getTrackingStream() {
     const locationSettings = LocationSettings(
       accuracy: LocationAccuracy.bestForNavigation,
-      distanceFilter: 3, // Update every 3 meters
+      distanceFilter: 1,
     );
 
     Position? previousPos;
 
     return Geolocator.getPositionStream(locationSettings: locationSettings)
         .where((pos) {
-          // 1. Filter out points with poor accuracy (> 30 meters)
-          if (pos.accuracy > 30.0) return false;
-
-          // 2. Filter out unrealistic GPS teleport jumps
+          // Filter out unrealistic GPS teleport jumps
           if (previousPos != null) {
             final distance = Geolocator.distanceBetween(
               previousPos!.latitude,

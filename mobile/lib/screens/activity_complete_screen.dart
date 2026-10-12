@@ -13,6 +13,7 @@ class ActivityCompleteScreen extends StatelessWidget {
   final double calories;
   final PathRoute route;
   final List<LatLng> gpsPoints;
+  final bool savedLocally;
 
   const ActivityCompleteScreen({
     super.key,
@@ -23,6 +24,7 @@ class ActivityCompleteScreen extends StatelessWidget {
     required this.calories,
     required this.route,
     required this.gpsPoints,
+    this.savedLocally = false,
   });
 
   String _formatDuration(int sec) {
@@ -77,7 +79,9 @@ class ActivityCompleteScreen extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Text(
-                'Great job! Your ${activityType.toLowerCase()} workout has been recorded and saved.',
+                savedLocally
+                    ? 'Great job! Your ${activityType.toLowerCase()} workout is saved on this device. Sign in to save workouts to your account.'
+                    : 'Great job! Your ${activityType.toLowerCase()} workout has been recorded and saved to your account.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                     fontSize: 14,

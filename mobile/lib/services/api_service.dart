@@ -7,7 +7,14 @@ import '../models/route_model.dart';
 import '../models/activity_model.dart';
 
 class ApiService {
+  static const _configuredBaseUrl = String.fromEnvironment('API_BASE_URL');
+  static const _localActivitiesKey = 'guestActivities';
+
   static String get baseUrl {
+    final configuredBaseUrl = _configuredBaseUrl.trim();
+    if (configuredBaseUrl.isNotEmpty) {
+      return configuredBaseUrl.replaceFirst(RegExp(r'/+$'), '');
+    }
     if (kIsWeb) return 'http://localhost:3000/api';
     try {
       if (Platform.isAndroid) return 'http://10.0.2.2:3000/api';
@@ -30,6 +37,28 @@ class ApiService {
       headers['Authorization'] = 'Bearer $token';
     }
     return headers;
+  }
+
+  static String _responseMessage(http.Response response, String fallback) {
+    try {
+      final data = jsonDecode(response.body);
+      if (data is Map && data['message'] is String) {
+        return data['message'] as String;
+      }
+    } on FormatException {
+      // Use the status code when the server did not return JSON.
+    }
+    return '$fallback (HTTP ${response.statusCode})';
+  }
+
+  static Future<List<ActivityModel>> _getLocalActivities() async {
+    final prefs = await SharedPreferences.getInstance();
+    final activities = prefs.getStringList(_localActivitiesKey) ?? [];
+    return activities
+        .map((activity) => ActivityModel.fromJson(
+            jsonDecode(activity) as Map<String, dynamic>))
+        .toList()
+      ..sort((a, b) => b.completedAt.compareTo(a.completedAt));
   }
 
   /// Generate real candidate routes with OSRM and AI ranking
@@ -91,7 +120,7 @@ class ApiService {
   /// Get user's saved activities
   static Future<List<ActivityModel>> getActivities() async {
     final token = await _getToken();
-    if (token == null || token.isEmpty) return [];
+    if (token == null || token.isEmpty) return _getLocalActivities();
 
     final headers = await _headers();
     final response = await http.get(
@@ -99,15 +128,18 @@ class ApiService {
       headers: headers,
     );
 
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      if (data['success'] == true && data['activities'] is List) {
-        return (data['activities'] as List)
-            .map((a) => ActivityModel.fromJson(a as Map<String, dynamic>))
-            .toList();
-      }
+    if (response.statusCode != 200) {
+      throw Exception(
+          _responseMessage(response, 'Failed to load activity history'));
     }
-    return [];
+
+    final data = jsonDecode(response.body);
+    if (data is Map && data['success'] == true && data['activities'] is List) {
+      return (data['activities'] as List)
+          .map((a) => ActivityModel.fromJson(a as Map<String, dynamic>))
+          .toList();
+    }
+    throw Exception('The server returned an invalid activity history response');
   }
 
   /// Get single activity by ID
@@ -132,6 +164,17 @@ class ApiService {
 
   /// Delete activity by ID
   static Future<bool> deleteActivity(String id) async {
+    if (id.startsWith('local-')) {
+      final prefs = await SharedPreferences.getInstance();
+      final activities = prefs.getStringList(_localActivitiesKey) ?? [];
+      activities.removeWhere((activity) {
+        final data = jsonDecode(activity) as Map<String, dynamic>;
+        return data['id'] == id;
+      });
+      await prefs.setStringList(_localActivitiesKey, activities);
+      return true;
+    }
+
     final token = await _getToken();
     if (token == null || token.isEmpty) return false;
 
@@ -158,7 +201,27 @@ class ApiService {
   }) async {
     final token = await _getToken();
     if (token == null || token.isEmpty) {
-      return {'success': false, 'message': 'Guest session - activity recorded locally'};
+      final prefs = await SharedPreferences.getInstance();
+      final activities = prefs.getStringList(_localActivitiesKey) ?? [];
+      final localActivity = <String, dynamic>{
+        'id': 'local-${completedAt.microsecondsSinceEpoch}',
+        'userId': '',
+        'activityType': activityType.toLowerCase(),
+        'distanceKm': distanceMeters / 1000,
+        'durationSeconds': durationSeconds,
+        'averagePaceMinPerKm': averagePaceSecondsPerKm == null
+            ? null
+            : averagePaceSecondsPerKm / 60,
+        'averageSpeedKmh': averageSpeedKmh,
+        'calories': calories,
+        'startedAt': startedAt.toUtc().toIso8601String(),
+        'completedAt': completedAt.toUtc().toIso8601String(),
+        'gpsData': gpsData ?? [],
+        'routeData': routeData,
+      };
+      activities.add(jsonEncode(localActivity));
+      await prefs.setStringList(_localActivitiesKey, activities);
+      return {'success': true, 'localOnly': true};
     }
 
     final headers = await _headers();
@@ -183,6 +246,9 @@ class ApiService {
       final data = jsonDecode(response.body);
       return {'success': true, 'activity': data['activity']};
     }
-    return {'success': false, 'message': 'Failed to save activity'};
+    return {
+      'success': false,
+      'message': _responseMessage(response, 'Failed to save activity'),
+    };
   }
 }

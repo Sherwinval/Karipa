@@ -131,6 +131,7 @@ class PathCraftApp extends StatelessWidget {
                 calories: (args?['calories'] as num?)?.toDouble() ?? 0.0,
                 route: args?['route'] as PathRoute,
                 gpsPoints: (args?['gpsPoints'] as List<LatLng>?) ?? [],
+                savedLocally: args?['savedLocally'] as bool? ?? false,
               ),
             );
 
