@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import '../theme/app_theme.dart';
 import '../theme/design_tokens.dart';
 import 'karipa_button.dart';
 import 'karipa_feedback.dart';
 import 'metric_tile.dart';
 import 'section_heading.dart';
+import 'karipa_logo.dart';
 
 /// Home presentation only. The screen owns fetching, totals and navigation.
 class HomeDashboard extends StatelessWidget {
@@ -42,6 +42,19 @@ class HomeDashboard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final lightMode = theme.brightness == Brightness.light;
+    // Scope softer card edges to Home, including shared metric/feedback cards.
+    final homeTheme = lightMode
+        ? theme.copyWith(
+            colorScheme: scheme.copyWith(outlineVariant: KaripaPalette.stone),
+            cardTheme: theme.cardTheme.copyWith(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppRadii.card),
+                side: const BorderSide(color: KaripaPalette.stone),
+              ),
+            ),
+          )
+        : theme;
     final textScaler = MediaQuery.textScalerOf(context);
     // BottomNavigationBar clamps its internal label scaling. Supplying already
     // scaled font sizes preserves the user's setting without changing its tabs.
@@ -49,143 +62,171 @@ class HomeDashboard extends StatelessWidget {
       fontSize: textScaler.scale(theme.textTheme.labelMedium!.fontSize!),
     );
 
-    return Scaffold(
-      backgroundColor: scheme.surface,
-      appBar: AppBar(
-        title: Text('Karipa', style: theme.textTheme.headlineSmall),
-        toolbarHeight: textScaler.scale(24) + AppSpacing.xxl,
-        actions: [
-          Padding(
-            padding: const EdgeInsetsDirectional.only(end: AppSpacing.sm),
-            child: IconButton(
-              tooltip: 'Open profile',
-              onPressed: onProfile,
-              icon: const Icon(Icons.account_circle_outlined),
+    return Theme(
+      data: homeTheme,
+      child: Scaffold(
+        backgroundColor:
+            lightMode ? KaripaPalette.homeBackground : scheme.surface,
+        appBar: AppBar(
+          backgroundColor: KaripaPalette.navy,
+          foregroundColor: KaripaPalette.white,
+          title: const KaripaLogo(
+              width: 180, horizontal: true, blendBackground: true),
+          toolbarHeight: 88,
+          actions: [
+            Padding(
+              padding: const EdgeInsetsDirectional.only(end: AppSpacing.sm),
+              child: IconButton(
+                tooltip: 'Open profile',
+                color: KaripaPalette.white,
+                onPressed: onProfile,
+                icon: const Icon(Icons.account_circle_outlined),
+              ),
             ),
-          ),
-        ],
-      ),
-      body: SafeArea(
-        top: false,
-        bottom: false,
-        child: RefreshIndicator(
-          onRefresh: onRefresh,
-          color: scheme.onPrimary,
-          backgroundColor: scheme.primary,
-          child: LayoutBuilder(builder: (context, constraints) {
-            final margin = AppSpacing.pageMargin(constraints.maxWidth);
-            return SingleChildScrollView(
-              key: const ValueKey('home-scroll'),
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: EdgeInsets.fromLTRB(
-                  margin, AppSpacing.lg, margin, AppSpacing.xxl),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints:
-                      const BoxConstraints(maxWidth: AppSizes.contentMaxWidth),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text('Hello, $userName',
-                          style: theme.textTheme.bodyMedium
-                              ?.copyWith(color: scheme.onSurfaceVariant)),
-                      const SizedBox(height: AppSpacing.lg),
-                      Semantics(
-                        header: true,
-                        child: Text('Make your\nnext move.',
-                            style: theme.textTheme.displayMedium),
-                      ),
-                      const SizedBox(height: AppSpacing.lg),
-                      Text('Walk. Jog. Run. Cycle.',
-                          style: theme.textTheme.bodyLarge),
-                      const SizedBox(height: AppSpacing.xl),
-                      KaripaButton(
-                          label: 'Start activity',
-                          icon: Icons.arrow_outward,
-                          onPressed: onStartActivity),
-                      const SizedBox(height: AppSpacing.md),
-                      Text('Choose an activity and plan your route.',
-                          style: theme.textTheme.bodySmall
-                              ?.copyWith(color: scheme.onSurfaceVariant)),
-                      const SizedBox(height: AppSpacing.xxl),
-                      const SectionHeading(
-                          title: 'Your activity', subtitle: 'All-time totals'),
-                      const SizedBox(height: AppSpacing.lg),
-                      if (isLoading) ...[
-                        const KaripaProgress(label: 'Updating activity totals'),
+          ],
+        ),
+        body: SafeArea(
+          top: false,
+          bottom: false,
+          child: RefreshIndicator(
+            onRefresh: onRefresh,
+            color: scheme.onPrimary,
+            backgroundColor: scheme.primary,
+            child: LayoutBuilder(builder: (context, constraints) {
+              final margin = AppSpacing.pageMargin(constraints.maxWidth);
+              return SingleChildScrollView(
+                key: const ValueKey('home-scroll'),
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: EdgeInsets.fromLTRB(
+                    margin, AppSpacing.lg, margin, AppSpacing.xxl),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(
+                        maxWidth: AppSizes.contentMaxWidth),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(AppSpacing.xl),
+                          decoration: BoxDecoration(
+                            color: KaripaPalette.navy,
+                            borderRadius: BorderRadius.circular(AppRadii.card),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Text('Hello, $userName',
+                                  style: theme.textTheme.bodyMedium
+                                      ?.copyWith(color: KaripaPalette.ivory)),
+                              const SizedBox(height: AppSpacing.lg),
+                              Semantics(
+                                header: true,
+                                child: Text('Make your\nnext move.',
+                                    style: theme.textTheme.displayMedium
+                                        ?.copyWith(color: KaripaPalette.white)),
+                              ),
+                              const SizedBox(height: AppSpacing.lg),
+                              Text('Walk. Jog. Run. Cycle.',
+                                  style: theme.textTheme.bodyLarge
+                                      ?.copyWith(color: KaripaPalette.ivory)),
+                              const SizedBox(height: AppSpacing.xl),
+                              KaripaButton(
+                                  label: 'Start activity',
+                                  icon: Icons.arrow_outward,
+                                  onPressed: onStartActivity),
+                              const SizedBox(height: AppSpacing.md),
+                              Text('Choose an activity and plan your route.',
+                                  style: theme.textTheme.bodySmall
+                                      ?.copyWith(color: KaripaPalette.ivory)),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.xxl),
+                        const SectionHeading(
+                            title: 'Your activity',
+                            subtitle: 'All-time totals'),
                         const SizedBox(height: AppSpacing.lg),
+                        if (isLoading) ...[
+                          const KaripaProgress(
+                              label: 'Updating activity totals'),
+                          const SizedBox(height: AppSpacing.lg),
+                        ],
+                        _HomeStats(
+                            distance: distance,
+                            activityCount: activityCount,
+                            activeTime: activeTime,
+                            calories: calories),
+                        const SizedBox(height: AppSpacing.xxl),
+                        LayoutBuilder(builder: (context, section) {
+                          const heading =
+                              SectionHeading(title: 'Recent activities');
+                          final action = TextButton(
+                              onPressed: onViewAll,
+                              child: const Text('View all'));
+                          if (section.maxWidth < 360 ||
+                              textScaler.scale(14) > 21) {
+                            return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  heading,
+                                  action,
+                                ]);
+                          }
+                          return Row(children: [
+                            const Expanded(child: heading),
+                            const SizedBox(width: AppSpacing.sm),
+                            action
+                          ]);
+                        }),
+                        const SizedBox(height: AppSpacing.md),
+                        if (isLoading)
+                          const KaripaProgress(
+                              label: 'Loading recent activities')
+                        else if (recentActivities.isEmpty)
+                          const KaripaFeedback(
+                            title: 'Your first move awaits',
+                            message:
+                                'No activities recorded yet. Start an activity to plan a route and track your movement.',
+                            kind: FeedbackKind.empty,
+                          )
+                        else
+                          ...recentActivities.expand((activity) => [
+                                activity,
+                                const SizedBox(height: AppSpacing.md)
+                              ]),
                       ],
-                      _HomeStats(
-                          distance: distance,
-                          activityCount: activityCount,
-                          activeTime: activeTime,
-                          calories: calories),
-                      const SizedBox(height: AppSpacing.xxl),
-                      LayoutBuilder(builder: (context, section) {
-                        const heading =
-                            SectionHeading(title: 'Recent activities');
-                        final action = TextButton(
-                            onPressed: onViewAll,
-                            child: const Text('View all'));
-                        if (section.maxWidth < 360 ||
-                            textScaler.scale(14) > 21) {
-                          return Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                heading,
-                                action,
-                              ]);
-                        }
-                        return Row(children: [
-                          Expanded(child: heading),
-                          const SizedBox(width: AppSpacing.sm),
-                          action
-                        ]);
-                      }),
-                      const SizedBox(height: AppSpacing.md),
-                      if (isLoading)
-                        const KaripaProgress(label: 'Loading recent activities')
-                      else if (recentActivities.isEmpty)
-                        const KaripaFeedback(
-                          title: 'Your first move awaits',
-                          message:
-                              'No activities recorded yet. Start an activity to plan a route and track your movement.',
-                          kind: FeedbackKind.empty,
-                        )
-                      else
-                        ...recentActivities.expand((activity) =>
-                            [activity, const SizedBox(height: AppSpacing.md)]),
-                    ],
+                    ),
                   ),
                 ),
-              ),
-            );
-          }),
+              );
+            }),
+          ),
         ),
-      ),
-      bottomNavigationBar: DecoratedBox(
-        decoration: BoxDecoration(
-            border: Border(top: BorderSide(color: scheme.surfaceContainerLow))),
-        child: BottomNavigationBar(
-          currentIndex: currentIndex,
-          onTap: onNavigationTapped,
-          selectedLabelStyle:
-              navigationLabel.copyWith(fontWeight: FontWeight.w800),
-          unselectedLabelStyle: navigationLabel,
-          items: const [
-            BottomNavigationBarItem(
-                icon: Icon(Icons.dashboard_outlined),
-                activeIcon: Icon(Icons.dashboard),
-                label: 'Home'),
-            BottomNavigationBarItem(
-                icon: Icon(Icons.history_outlined),
-                activeIcon: Icon(Icons.history),
-                label: 'History'),
-            BottomNavigationBarItem(
-                icon: Icon(Icons.person_outline),
-                activeIcon: Icon(Icons.person),
-                label: 'Profile'),
-          ],
+        bottomNavigationBar: DecoratedBox(
+          decoration: BoxDecoration(
+              border:
+                  Border(top: BorderSide(color: scheme.surfaceContainerLow))),
+          child: BottomNavigationBar(
+            currentIndex: currentIndex,
+            onTap: onNavigationTapped,
+            selectedLabelStyle:
+                navigationLabel.copyWith(fontWeight: FontWeight.w800),
+            unselectedLabelStyle: navigationLabel,
+            items: const [
+              BottomNavigationBarItem(
+                  icon: Icon(Icons.dashboard_outlined),
+                  activeIcon: Icon(Icons.dashboard),
+                  label: 'Home'),
+              BottomNavigationBarItem(
+                  icon: Icon(Icons.history_outlined),
+                  activeIcon: Icon(Icons.history),
+                  label: 'History'),
+              BottomNavigationBarItem(
+                  icon: Icon(Icons.person_outline),
+                  activeIcon: Icon(Icons.person),
+                  label: 'Profile'),
+            ],
+          ),
         ),
       ),
     );
@@ -206,12 +247,11 @@ class _HomeStats extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final light = AppTheme.lightTheme;
+    final theme = Theme.of(context);
     return Theme(
-      // Warm cards reuse the light theme's tested foreground/background pairs.
-      data: light.copyWith(
-          textTheme: light.textTheme
-              .copyWith(headlineSmall: light.textTheme.displaySmall)),
+      data: theme.copyWith(
+          textTheme: theme.textTheme
+              .copyWith(headlineSmall: theme.textTheme.displaySmall)),
       child: LayoutBuilder(builder: (context, constraints) {
         final largeText = MediaQuery.textScalerOf(context).scale(14) > 21;
         final width = largeText
@@ -224,21 +264,31 @@ class _HomeStats extends StatelessWidget {
               SizedBox(
                   width: width,
                   child: MetricTile(
-                      label: 'Distance', value: distance, unit: 'km')),
+                      label: 'Distance',
+                      value: distance,
+                      unit: 'km',
+                      icon: Icons.route_outlined)),
               SizedBox(
                   width: width,
                   child: MetricTile(
                       label: 'Activities',
+                      icon: Icons.bolt_outlined,
                       value: activityCount,
                       unit: 'total')),
               SizedBox(
                   width: width,
                   child: MetricTile(
-                      label: 'Active time', value: activeTime, unit: 'total')),
+                      label: 'Active time',
+                      value: activeTime,
+                      unit: 'total',
+                      icon: Icons.schedule_outlined)),
               SizedBox(
                   width: width,
                   child: MetricTile(
-                      label: 'Est. calories', value: calories, unit: 'kcal')),
+                      label: 'Est. calories',
+                      value: calories,
+                      unit: 'kcal',
+                      icon: Icons.local_fire_department_outlined)),
             ]);
       }),
     );

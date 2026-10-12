@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/design_tokens.dart';
 import 'package:geolocator/geolocator.dart';
 import '../models/route_model.dart';
 
@@ -17,14 +18,18 @@ class ReadyToStartScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A), // Premium dark layout
+      backgroundColor:
+          Theme.of(context).colorScheme.surface, // Premium dark layout
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
-        title: const Text(
+        iconTheme:
+            IconThemeData(color: Theme.of(context).colorScheme.onSurface),
+        title: Text(
           'Ready to Start',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurface,
+              fontWeight: FontWeight.bold),
         ),
       ),
       body: SafeArea(
@@ -42,23 +47,25 @@ class ReadyToStartScreen extends StatelessWidget {
                   height: 110,
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
-                      colors: [Color(0xFF0D9488), Color(0xFF14B8A6)],
+                      colors: [KaripaPalette.coral, KaripaPalette.coral],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFF14B8A6).withOpacity(0.4),
+                        color: KaripaPalette.midnight.withOpacity(0.4),
                         blurRadius: 30,
                         offset: const Offset(0, 10),
                       ),
                     ],
                   ),
                   child: Icon(
-                    activity.toLowerCase() == 'cycling' ? Icons.directions_bike : Icons.directions_run,
+                    activity.toLowerCase() == 'cycling'
+                        ? Icons.directions_bike
+                        : Icons.directions_run,
                     size: 54,
-                    color: Colors.white,
+                    color: KaripaPalette.midnight,
                   ),
                 ),
               ),
@@ -67,10 +74,10 @@ class ReadyToStartScreen extends StatelessWidget {
               Center(
                 child: Text(
                   activity.toUpperCase(),
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                    color: Theme.of(context).colorScheme.onSurface,
                     letterSpacing: 1.5,
                   ),
                 ),
@@ -79,7 +86,9 @@ class ReadyToStartScreen extends StatelessWidget {
               Center(
                 child: Text(
                   route.name,
-                  style: TextStyle(fontSize: 16, color: Colors.grey.shade400),
+                  style: TextStyle(
+                      fontSize: 16,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant),
                 ),
               ),
               const SizedBox(height: 36),
@@ -88,9 +97,10 @@ class ReadyToStartScreen extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1E293B),
+                  color: Theme.of(context).colorScheme.surfaceContainer,
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.white.withOpacity(0.08)),
+                  border:
+                      Border.all(color: Theme.of(context).colorScheme.outline),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -102,18 +112,25 @@ class ReadyToStartScreen extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
-                            color: Colors.grey.shade400,
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant,
                             letterSpacing: 0.8,
                           ),
                         ),
                         const SizedBox(height: 6),
                         Text(
                           '${route.distanceKm.toStringAsFixed(2)} km',
-                          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+                          style: TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                              color: Theme.of(context).colorScheme.onSurface),
                         ),
                       ],
                     ),
-                    Container(height: 36, width: 1, color: Colors.white12),
+                    Container(
+                        height: 36,
+                        width: 1,
+                        color: Theme.of(context).colorScheme.outline),
                     Column(
                       children: [
                         Text(
@@ -121,14 +138,18 @@ class ReadyToStartScreen extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
-                            color: Colors.grey.shade400,
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant,
                             letterSpacing: 0.8,
                           ),
                         ),
                         const SizedBox(height: 6),
                         Text(
                           route.formattedDuration,
-                          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+                          style: TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                              color: Theme.of(context).colorScheme.onSurface),
                         ),
                       ],
                     ),
@@ -139,11 +160,13 @@ class ReadyToStartScreen extends StatelessWidget {
 
               // GPS Status Badge
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 decoration: BoxDecoration(
-                  color: Colors.green.shade900.withOpacity(0.3),
+                  color: Theme.of(context).colorScheme.surfaceContainer,
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: Colors.green.shade600.withOpacity(0.4)),
+                  border:
+                      Border.all(color: Theme.of(context).colorScheme.outline),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -152,17 +175,22 @@ class ReadyToStartScreen extends StatelessWidget {
                       width: 10,
                       height: 10,
                       decoration: BoxDecoration(
-                        color: Colors.greenAccent.shade400,
+                        color: Theme.of(context).colorScheme.onSurface,
                         shape: BoxShape.circle,
                         boxShadow: [
-                          BoxShadow(color: Colors.greenAccent.withOpacity(0.6), blurRadius: 6),
+                          BoxShadow(
+                              color: KaripaPalette.midnight.withOpacity(0.6),
+                              blurRadius: 6),
                         ],
                       ),
                     ),
                     const SizedBox(width: 10),
-                    const Text(
+                    Text(
                       'GPS Signal Acquired • High Accuracy Ready',
-                      style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                      style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurface,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600),
                     ),
                   ],
                 ),
@@ -184,12 +212,13 @@ class ReadyToStartScreen extends StatelessWidget {
                   );
                 },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF14B8A6),
-                  foregroundColor: Colors.white,
+                  backgroundColor: KaripaPalette.coral,
+                  foregroundColor: KaripaPalette.midnight,
                   minimumSize: const Size.fromHeight(56),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16)),
                   elevation: 4,
-                  shadowColor: const Color(0xFF14B8A6).withOpacity(0.4),
+                  shadowColor: KaripaPalette.midnight.withOpacity(0.4),
                 ),
                 child: const Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -198,7 +227,10 @@ class ReadyToStartScreen extends StatelessWidget {
                     SizedBox(width: 8),
                     Text(
                       'START ACTIVITY',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 1.0),
+                      style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.0),
                     ),
                   ],
                 ),

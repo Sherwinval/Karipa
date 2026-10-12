@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/design_tokens.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import '../models/route_model.dart';
@@ -24,14 +25,16 @@ class RouteDetailsScreen extends StatelessWidget {
         ? LatLng(currentLocation!.latitude, currentLocation!.longitude)
         : null;
 
-    final roadTypes = (route.features['roadTypes'] as List?)?.cast<String>() ?? [];
+    final roadTypes =
+        (route.features['roadTypes'] as List?)?.cast<String>() ?? [];
     final elevationGain = route.features['elevationGainM'] ?? 20;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: AppBar(
-        title: Text(route.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
+        title: Text(route.name,
+            style: const TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: Theme.of(context).colorScheme.surface,
         elevation: 0,
       ),
       body: SafeArea(
@@ -68,16 +71,16 @@ class RouteDetailsScreen extends StatelessWidget {
                       children: [
                         Text(
                           route.name,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 22,
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFF0F172A),
+                            color: Theme.of(context).colorScheme.onSurface,
                             letterSpacing: -0.5,
                           ),
                         ),
                         StatusBadge(
                           text: '${route.score.toStringAsFixed(0)}% Match',
-                          color: const Color(0xFF0D9488),
+                          color: Theme.of(context).colorScheme.onSurface,
                           icon: Icons.auto_awesome,
                         ),
                       ],
@@ -88,14 +91,14 @@ class RouteDetailsScreen extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF0D9488).withOpacity(0.08),
+                        color: Theme.of(context).colorScheme.surfaceContainer,
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
                         'AI Recommendation: ${route.reasoning}',
                         style: TextStyle(
                           fontSize: 13,
-                          color: Colors.teal.shade900,
+                          color: Theme.of(context).colorScheme.onSurface,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -111,7 +114,7 @@ class RouteDetailsScreen extends StatelessWidget {
                             value: route.distanceKm.toStringAsFixed(2),
                             unit: 'km',
                             icon: Icons.straighten,
-                            color: const Color(0xFF0D9488),
+                            color: KaripaPalette.coral,
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -120,7 +123,7 @@ class RouteDetailsScreen extends StatelessWidget {
                             label: 'Est. Time',
                             value: route.formattedDuration,
                             icon: Icons.timer_outlined,
-                            color: Colors.indigo.shade600,
+                            color: KaripaPalette.coral,
                           ),
                         ),
                       ],
@@ -134,16 +137,18 @@ class RouteDetailsScreen extends StatelessWidget {
                             value: '+$elevationGain',
                             unit: 'm',
                             icon: Icons.terrain,
-                            color: Colors.amber.shade800,
+                            color: KaripaPalette.coral,
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: MetricTile(
                             label: 'Type',
-                            value: route.features['isLoop'] == true ? 'Loop' : 'Out & Back',
+                            value: route.features['isLoop'] == true
+                                ? 'Loop'
+                                : 'Out & Back',
                             icon: Icons.alt_route,
-                            color: Colors.blue.shade700,
+                            color: KaripaPalette.coral,
                           ),
                         ),
                       ],
@@ -152,20 +157,32 @@ class RouteDetailsScreen extends StatelessWidget {
 
                     // Roads Analyzed
                     if (roadTypes.isNotEmpty) ...[
-                      const Text(
+                      Text(
                         'Road Characteristics Analyzed:',
-                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF475569)),
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant),
                       ),
                       const SizedBox(height: 6),
                       Wrap(
                         spacing: 8,
                         runSpacing: 6,
-                        children: roadTypes.map((name) => Chip(
-                          label: Text(name, style: const TextStyle(fontSize: 12)),
-                          backgroundColor: Colors.white,
-                          side: BorderSide(color: Colors.grey.shade300),
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                        )).toList(),
+                        children: roadTypes
+                            .map((name) => Chip(
+                                  label: Text(name,
+                                      style: const TextStyle(fontSize: 12)),
+                                  backgroundColor:
+                                      Theme.of(context).colorScheme.surface,
+                                  side: BorderSide(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .outline),
+                                  padding:
+                                      const EdgeInsets.symmetric(horizontal: 4),
+                                ))
+                            .toList(),
                       ),
                       const SizedBox(height: 16),
                     ],
@@ -184,10 +201,11 @@ class RouteDetailsScreen extends StatelessWidget {
                         );
                       },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF0D9488),
-                        foregroundColor: Colors.white,
+                        backgroundColor: KaripaPalette.coral,
+                        foregroundColor: KaripaPalette.midnight,
                         minimumSize: const Size.fromHeight(54),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14)),
                         elevation: 1,
                       ),
                       child: const Row(
@@ -195,7 +213,9 @@ class RouteDetailsScreen extends StatelessWidget {
                         children: [
                           Icon(Icons.directions_run, size: 22),
                           SizedBox(width: 8),
-                          Text('Select Route & Prepare', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                          Text('Select Route & Prepare',
+                              style: TextStyle(
+                                  fontSize: 16, fontWeight: FontWeight.bold)),
                         ],
                       ),
                     ),

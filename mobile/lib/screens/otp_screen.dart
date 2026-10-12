@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../theme/design_tokens.dart';
+import '../widgets/karipa_auth_layout.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
 
@@ -75,13 +77,14 @@ class _OtpScreenState extends State<OtpScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Verify Email')),
-      body: Padding(
-        padding: const EdgeInsets.all(24.0),
+      body: KaripaAuthLayout(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Icon(Icons.mark_email_read, size: 64, color: Colors.teal),
+            Text('Check your inbox',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.headlineMedium),
             const SizedBox(height: 24),
             Text(
               'Enter the verification code sent to\n${widget.email}',
@@ -94,13 +97,15 @@ class _OtpScreenState extends State<OtpScreen> {
                 padding: const EdgeInsets.all(12),
                 margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(
-                  color: Colors.red.shade50,
+                  color: Theme.of(context).colorScheme.surfaceContainer,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.red.shade200),
+                  border:
+                      Border.all(color: Theme.of(context).colorScheme.outline),
                 ),
                 child: Text(
                   _errorMessage!,
-                  style: TextStyle(color: Colors.red.shade700),
+                  style:
+                      TextStyle(color: Theme.of(context).colorScheme.onSurface),
                   textAlign: TextAlign.center,
                 ),
               ),
@@ -109,13 +114,15 @@ class _OtpScreenState extends State<OtpScreen> {
                 padding: const EdgeInsets.all(12),
                 margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(
-                  color: Colors.green.shade50,
+                  color: Theme.of(context).colorScheme.surfaceContainer,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.green.shade200),
+                  border:
+                      Border.all(color: Theme.of(context).colorScheme.outline),
                 ),
                 child: Text(
                   _successMessage!,
-                  style: TextStyle(color: Colors.green.shade700),
+                  style:
+                      TextStyle(color: Theme.of(context).colorScheme.onSurface),
                   textAlign: TextAlign.center,
                 ),
               ),
@@ -124,9 +131,10 @@ class _OtpScreenState extends State<OtpScreen> {
               keyboardType: TextInputType.number,
               maxLength: 6,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 24, letterSpacing: 8, fontWeight: FontWeight.bold),
+              style: const TextStyle(
+                  fontSize: 24, letterSpacing: 2, fontWeight: FontWeight.bold),
               decoration: const InputDecoration(
-                border: OutlineInputBorder(),
+                labelText: 'Verification code',
                 counterText: '',
                 hintText: '000000',
               ),
@@ -136,14 +144,15 @@ class _OtpScreenState extends State<OtpScreen> {
               onPressed: _isLoading ? null : _verifyOtp,
               style: ElevatedButton.styleFrom(
                 minimumSize: const Size.fromHeight(50),
-                backgroundColor: Colors.teal,
-                foregroundColor: Colors.white,
+                backgroundColor: KaripaPalette.coral,
+                foregroundColor: KaripaPalette.midnight,
               ),
               child: _isLoading
                   ? const SizedBox(
                       width: 24,
                       height: 24,
-                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                      child: CircularProgressIndicator(
+                          color: KaripaPalette.midnight, strokeWidth: 2),
                     )
                   : const Text('Verify', style: TextStyle(fontSize: 16)),
             ),
@@ -162,7 +171,9 @@ class _OtpScreenState extends State<OtpScreen> {
               onPressed: () {
                 Navigator.pushReplacementNamed(context, '/');
               },
-              child: const Text('Change Email', style: TextStyle(color: Colors.grey)),
+              child: Text('Change Email',
+                  style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant)),
             ),
           ],
         ),

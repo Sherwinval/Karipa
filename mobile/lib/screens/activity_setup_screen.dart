@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/design_tokens.dart';
 
 class ActivitySetupScreen extends StatefulWidget {
   final String activityType;
@@ -17,7 +18,7 @@ class _ActivitySetupScreenState extends State<ActivitySetupScreen> {
     setState(() {
       _isGenerating = true;
     });
-    
+
     // Simulate API call for now
     Future.delayed(const Duration(seconds: 2), () {
       if (!mounted) return;
@@ -40,7 +41,8 @@ class _ActivitySetupScreenState extends State<ActivitySetupScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Target Distance (km)', style: Theme.of(context).textTheme.titleMedium),
+            Text('Target Distance (km)',
+                style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             TextField(
               controller: _distanceController,
@@ -55,14 +57,18 @@ class _ActivitySetupScreenState extends State<ActivitySetupScreen> {
               onPressed: _isGenerating ? null : _generateRoute,
               style: ElevatedButton.styleFrom(
                 minimumSize: const Size.fromHeight(50),
-                backgroundColor: Colors.teal,
-                foregroundColor: Colors.white,
+                backgroundColor: KaripaPalette.coral,
+                foregroundColor: KaripaPalette.midnight,
               ),
               child: _isGenerating
                   ? const Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)),
+                        SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                                color: KaripaPalette.midnight, strokeWidth: 2)),
                         SizedBox(width: 12),
                         Text('Generating your route...'),
                       ],

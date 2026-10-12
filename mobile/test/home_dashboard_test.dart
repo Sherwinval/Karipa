@@ -66,6 +66,7 @@ Future<void> mountHome(
   double height = 900,
   RouteRecorder? observer,
   bool guest = false,
+  Brightness brightness = Brightness.light,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = Size(width, height);
@@ -79,7 +80,7 @@ Future<void> mountHome(
   await tester.pumpWidget(ChangeNotifierProvider(
     create: (_) => AuthService(),
     child: MaterialApp(
-      theme: AppTheme.buildTheme(useGoogleFonts: false),
+      theme: AppTheme.buildTheme(useGoogleFonts: false, brightness: brightness),
       navigatorObservers: [if (observer != null) observer],
       builder: (context, child) => MediaQuery(
         data: MediaQuery.of(context).copyWith(
@@ -167,43 +168,46 @@ void main() {
     }
   }
 
-  testWidgets(
-      'real screen binds all totals and first three records without changing global theme',
-      (tester) async {
-    resetView(tester);
-    await http.runWithClient(() async {
-      await mountHome(tester);
-      await tester.pumpAndSettle();
-      final home = tester.widget<HomeDashboard>(find.byType(HomeDashboard));
-      expect(home.distance, '17.0');
-      expect(home.activityCount, '4');
-      expect(home.activeTime, '1h 20m');
-      expect(home.calories, '570');
-      final cards = tester
-          .widgetList<HomeRecentActivityCard>(
-              find.byType(HomeRecentActivityCard))
-          .toList();
-      expect(cards.map((card) => card.activity),
-          ['WALKING', 'CYCLING', 'JOGGING']);
-      expect(cards.first.date, '9 Oct 2026');
-      expect(cards.first.duration, '15:00');
-      expect(cards.last.calories, '0'); // Preserves the existing null fallback.
-      expect(Theme.of(tester.element(find.byType(HomeDashboard))).brightness,
-          Brightness.dark);
-      expect(
-          tester
-              .widget<MaterialApp>(find.byType(MaterialApp))
-              .theme!
-              .brightness,
-          Brightness.light);
-    },
-        () => MockClient((request) async {
-              expect(request.method, 'GET');
-              expect(request.url.path, '/api/activities');
-              return http.Response(
-                  jsonEncode({'success': true, 'activities': records}), 200);
-            }));
-  });
+  for (final brightness in Brightness.values) {
+    testWidgets(
+        'real screen binds totals and recent records with global $brightness theme',
+        (tester) async {
+      resetView(tester);
+      await http.runWithClient(() async {
+        await mountHome(tester, brightness: brightness);
+        await tester.pumpAndSettle();
+        final home = tester.widget<HomeDashboard>(find.byType(HomeDashboard));
+        expect(home.distance, '17.0');
+        expect(home.activityCount, '4');
+        expect(home.activeTime, '1h 20m');
+        expect(home.calories, '570');
+        final cards = tester
+            .widgetList<HomeRecentActivityCard>(
+                find.byType(HomeRecentActivityCard))
+            .toList();
+        expect(cards.map((card) => card.activity),
+            ['WALKING', 'CYCLING', 'JOGGING']);
+        expect(cards.first.date, '9 Oct 2026');
+        expect(cards.first.duration, '15:00');
+        expect(
+            cards.last.calories, '0'); // Preserves the existing null fallback.
+        expect(Theme.of(tester.element(find.byType(HomeDashboard))).brightness,
+            brightness);
+        expect(
+            tester
+                .widget<MaterialApp>(find.byType(MaterialApp))
+                .theme!
+                .brightness,
+            brightness);
+      },
+          () => MockClient((request) async {
+                expect(request.method, 'GET');
+                expect(request.url.path, '/api/activities');
+                return http.Response(
+                    jsonEncode({'success': true, 'activities': records}), 200);
+              }));
+    });
+  }
 
   testWidgets(
       'guest keeps existing empty data flow without making authenticated requests',
