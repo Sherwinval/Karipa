@@ -23,7 +23,7 @@ class MetricTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final tokens = PathCraftColors.of(context);
+    final tokens = KaripaColors.of(context);
     final fill =
         prominent ? tokens.metricPanel : theme.colorScheme.surfaceContainerLow;
     final ink = prominent ? tokens.onMetricPanel : theme.colorScheme.onSurface;

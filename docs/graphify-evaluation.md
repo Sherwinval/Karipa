@@ -6,7 +6,7 @@ Reviewed 2026-10-10. Recommendation: adopt neither tool for Phase 0 or the propo
 
 Identity evaluated: [Graphify-Labs/graphify](https://github.com/Graphify-Labs/graphify), distributed as the Python package `graphifyy`. Other forks exist; confirm this is the intended product before a future trial.
 
-Its current documentation lists Dart among its tree-sitter languages, Codex integration through skill/instruction configuration, optional MCP, and Python 3.10+. It describes code extraction as local and deterministic; semantic processing of documents/media can use an assistant or configured model provider. Its Codex setup can modify `AGENTS.md` and tool configuration. The repository is not archived and includes tests and release documentation. These are publisher statements and repository observations, not a tested integration in PathCraft. [Maintainer README](https://github.com/Graphify-Labs/graphify#readme).
+Its current documentation lists Dart among its tree-sitter languages, Codex integration through skill/instruction configuration, optional MCP, and Python 3.10+. It describes code extraction as local and deterministic; semantic processing of documents/media can use an assistant or configured model provider. Its Codex setup can modify `AGENTS.md` and tool configuration. The repository is not archived and includes tests and release documentation. These are publisher statements and repository observations, not a tested integration in Karipa. [Maintainer README](https://github.com/Graphify-Labs/graphify#readme).
 
 | Consideration | Assessment for this repository |
 | --- | --- |

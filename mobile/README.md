@@ -1,6 +1,8 @@
 # Karipa mobile frontend
 
-Karipa is the user-facing Flutter application for the PathCraft academic project. The technical package remains `pathcraft_mobile`.
+Karipa is the project's user-facing Flutter application. Its Flutter package name is `karipa`.
+
+The Android and Apple bundle identifiers now use `com.example.karipa`. Builds with these identifiers install separately from older builds, and the placeholder identifiers should be replaced with publisher-owned values before release.
 
 - [Frontend instructions and protected boundaries](AGENTS.md)
 - [Development guide: environment, running, debugging, and UI validation](../docs/frontend-development.md)

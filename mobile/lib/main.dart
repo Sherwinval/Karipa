@@ -34,13 +34,13 @@ void main() {
         ChangeNotifierProvider(create: (_) => AuthService()),
         ChangeNotifierProvider(create: (_) => ThemeService()),
       ],
-      child: const PathCraftApp(),
+      child: const KaripaApp(),
     ),
   );
 }
 
-class PathCraftApp extends StatelessWidget {
-  const PathCraftApp({super.key});
+class KaripaApp extends StatelessWidget {
+  const KaripaApp({super.key});
 
   @override
   Widget build(BuildContext context) {

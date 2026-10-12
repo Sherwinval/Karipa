@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pathcraft_mobile/services/api_service.dart';
+import 'package:karipa/services/api_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {

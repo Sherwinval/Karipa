@@ -2,7 +2,7 @@
 
 Historical Phase 0 snapshot. Its palette recommendation and approval stop point were superseded by the user's Phase 1 brief. See the [approved design system](karipa-design-system.md) and [Phase 1 report](frontend-phase1-report.md) for current work.
 
-Completed 2026-10-10 on Windows. Scope: persistent frontend guidance, narrow display-name rebrand, design exploration, Graphify evaluation, and before/after frontend checks. PathCraft remains the academic project and technical identity. No palette or full UI redesign has been implemented.
+Completed 2026-10-10 on Windows. Scope: persistent frontend guidance, initial mobile display-name update, design exploration, Graphify evaluation, and before/after frontend checks. The later project-wide rebrand aligned the technical and user-facing identity on Karipa. No palette or full UI redesign had been implemented at this historical checkpoint.
 
 ## Completed work and file inventory
 
@@ -19,25 +19,19 @@ Five files were added and twelve existing files updated. All application/test/na
 | `docs/graphify-evaluation.md` | Added separate knowledge-graph and Flutter-chart assessments, primary sources, uncertainty, and adoption recommendation. |
 | `docs/frontend-phase0-report.md` | This change inventory, baseline comparison, unresolved issues, and approval boundary. |
 
-### Exact branding changes
+### Initial display-name changes
 
 Paths below are relative to the repository root. Other content in these files is unchanged.
 
-| File | Exact changes |
+| File | Result |
 | --- | --- |
-| `mobile/lib/main.dart` | `MaterialApp.title`: `PathCraft` -> `Karipa` |
-| `mobile/lib/screens/splash_screen.dart` | Visible `PathCraft` -> `Karipa` |
-| `mobile/lib/screens/login_screen.dart` | `Welcome to PathCraft` -> `Welcome to Karipa` |
-| `mobile/lib/screens/register_screen.dart` | `Join PathCraft` -> `Join Karipa` |
-| `mobile/lib/screens/home_screen.dart` | Brand label `PathCraft` -> `Karipa` |
-| `mobile/lib/screens/profile_screen.dart` | `PathCraft Athlete` -> `Karipa Athlete`; `About PathCraft` -> `About Karipa`; sign-out confirmation's `PathCraft` -> `Karipa` |
-| `mobile/lib/screens/activity_selection_screen.dart` | Introductory route-tailoring copy's `PathCraft` -> `Karipa` |
-| `mobile/lib/screens/route_planning_screen.dart` | Existing location-denied message's `PathCraft` -> `Karipa`; permission checks, exception behavior, and recovery unchanged |
-| `mobile/android/app/src/main/AndroidManifest.xml` | Existing `android:label="pathcraft_mobile"` -> `android:label="Karipa"` |
-| `mobile/ios/Runner/Info.plist` | Existing `CFBundleDisplayName` value `Pathcraft Mobile` -> `Karipa` |
-| `mobile/test/widget_test.dart` | Test description `PathCraft app launches smoke test` -> `Karipa app launches smoke test`; expected text `PathCraft` -> `Karipa` |
+| `mobile/lib/main.dart` | The app title is Karipa. |
+| `mobile/lib/screens/` | Visible app and account copy uses the Karipa name. |
+| `mobile/android/app/src/main/AndroidManifest.xml` | The Android display label is Karipa. |
+| `mobile/ios/Runner/Info.plist` | The iOS display name is Karipa. |
+| `mobile/test/widget_test.dart` | Smoke-test descriptions and brand expectations use Karipa. |
 
-Native display-name keys matched expectations before editing. `CFBundleName`, application IDs, bundle identifiers, `pathcraft_mobile`, `PathCraftApp`, `PathCraftColors`, routes, imports, callbacks, arguments, dependencies, assets, and business logic were preserved. The route-planning change is display copy inside an existing exception, not a permission-logic change. Backend-generated content was not rebranded.
+That initial pass changed only displayed names and left technical identifiers intact. The subsequent project-wide rebrand also aligned Flutter package/type names, native application identifiers, backend and AI messages, local service names, and documentation with Karipa. Business logic and API paths were not changed.
 
 ## Validation: baseline versus after rebrand
 

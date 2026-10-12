@@ -1,4 +1,4 @@
-package com.example.pathcraft_mobile
+package com.example.karipa
 
 import io.flutter.embedding.android.FlutterActivity
 

@@ -14,13 +14,13 @@ export const sendOtpEmail = async (email, otp) => {
         },
     });
     const mailOptions = {
-        from: process.env.SMTP_FROM || 'noreply@pathcraft.com',
+        from: process.env.SMTP_FROM || 'noreply@karipa.com',
         to: email,
-        subject: 'Your PathCraft Verification Code',
+        subject: 'Your Karipa Verification Code',
         text: `Your verification code is: ${otp}. It will expire in 15 minutes.`,
         html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
-        <h2 style="color: #009688;">Welcome to PathCraft!</h2>
+        <h2 style="color: #009688;">Welcome to Karipa!</h2>
         <p>Your verification code is:</p>
         <div style="font-size: 24px; font-weight: bold; padding: 10px; background-color: #f5f5f5; text-align: center; border-radius: 5px; margin: 20px 0; letter-spacing: 5px;">
           ${otp}

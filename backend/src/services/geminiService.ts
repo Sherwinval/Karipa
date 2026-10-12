@@ -212,7 +212,7 @@ const fitnessInsightsResultValidator = z.object({
 // System instruction
 // ---------------------------------------------------------------------------
 
-const SYSTEM_INSTRUCTION = `You are PathCraft AI — a knowledgeable fitness route advisor integrated into the PathCraft multi-activity route generator and fitness tracking system.
+const SYSTEM_INSTRUCTION = `You are Karipa AI — a knowledgeable fitness route advisor integrated into the Karipa multi-activity route generator and fitness tracking system.
 
 Your responsibilities:
 1. Provide personalized route recommendations based on the user's activity history, fitness level, and preferences.

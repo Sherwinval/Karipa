@@ -3,7 +3,7 @@
 ## 2026-09-08
 
 - Completed the initial environment audit.
-- Created the PathCraft monorepo foundation.
+- Created the Karipa monorepo foundation.
 - Added Flutter, backend, Python AI, database, and documentation directories.
 - Added initial backend and AI health endpoints.
 - Replaced the backend PostgreSQL client dependency with Prisma.

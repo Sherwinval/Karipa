@@ -5,7 +5,7 @@ param(
     [string]$EmulatorSerial = "emulator-5554"
 )
 
-Write-Host "🌍 PathCraft Emulator Location Sync Tool" -ForegroundColor Cyan
+Write-Host "🌍 Karipa Emulator Location Sync Tool" -ForegroundColor Cyan
 
 # Locate adb executable
 $adbPath = "adb"
@@ -77,7 +77,7 @@ Write-Host "[*] Setting emulator ($EmulatorSerial) GPS location to Lon: $Longitu
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host "[SUCCESS] Emulator GPS location successfully updated to ($Latitude, $Longitude)!" -ForegroundColor Green
-    Write-Host "[*] You can now test route generation in PathCraft app with routes around your location." -ForegroundColor Cyan
+    Write-Host "[*] You can now test route generation in Karipa app with routes around your location." -ForegroundColor Cyan
 } else {
     Write-Host "[-] Failed to set emulator location via adb." -ForegroundColor Red
 }

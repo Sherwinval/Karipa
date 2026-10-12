@@ -1,11 +1,11 @@
 import { prisma } from '../lib/prisma.js';
 
-const testEmail = `pathcraft-crud-${Date.now()}@example.test`;
+const testEmail = `karipa-crud-${Date.now()}@example.test`;
 
 try {
   const user = await prisma.user.create({
     data: {
-      name: 'PathCraft CRUD Test',
+      name: 'Karipa CRUD Test',
       email: testEmail,
       passwordHash: 'test-only-hash',
     },
@@ -40,7 +40,7 @@ try {
 
   await prisma.user.update({
     where: { id: user.id },
-    data: { name: 'PathCraft CRUD Test Updated' },
+    data: { name: 'Karipa CRUD Test Updated' },
   });
 
   await prisma.user.delete({ where: { id: user.id } });

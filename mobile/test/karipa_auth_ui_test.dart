@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:pathcraft_mobile/screens/login_screen.dart';
-import 'package:pathcraft_mobile/screens/register_screen.dart';
-import 'package:pathcraft_mobile/screens/otp_screen.dart';
-import 'package:pathcraft_mobile/services/auth_service.dart';
-import 'package:pathcraft_mobile/theme/app_theme.dart';
-import 'package:pathcraft_mobile/widgets/karipa_logo.dart';
+import 'package:karipa/screens/login_screen.dart';
+import 'package:karipa/screens/register_screen.dart';
+import 'package:karipa/screens/otp_screen.dart';
+import 'package:karipa/services/auth_service.dart';
+import 'package:karipa/theme/app_theme.dart';
+import 'package:karipa/widgets/karipa_logo.dart';
 
 Future<void> mount(WidgetTester tester, Widget screen,
     {double width = 320,

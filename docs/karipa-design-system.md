@@ -1,6 +1,6 @@
 # Karipa Flutter design system
 
-Approved identity implemented in Phase 1; updated 2026-10-11 (Asia/Manila). PathCraft remains the academic/technical project. The previous green/lime Trail Spark direction and all Phase 0 candidate palettes are superseded.
+Approved identity implemented in Phase 1; updated 2026-10-11 (Asia/Manila). The project and mobile application share the Karipa identity. The previous green/lime Trail Spark direction and all Phase 0 candidate palettes are superseded.
 
 This is a shared presentation foundation, not a completed screen redesign. See [frontend instructions](../mobile/AGENTS.md) and the [Phase 1 report](frontend-phase1-report.md) for scope, file inventory, validation, and limitations.
 
@@ -22,7 +22,7 @@ No mint, green, teal, extra semantic hue, or generated seed palette was added. G
 
 ## Material roles
 
-`AppTheme` explicitly constructs the complete modern ColorScheme rather than deriving tonal variations with `fromSeed`. `PathCraftColors` remains the ThemeExtension name; its constructor, fields, copy/lerp behavior, and old `lime` identifier remain compatible. That legacy field now resolves to coral. New code should use semantic roles instead of the old color-named alias.
+`AppTheme` explicitly constructs the complete modern ColorScheme rather than deriving tonal variations with `fromSeed`. `KaripaColors` remains the ThemeExtension name; its constructor, fields, copy/lerp behavior, and old `lime` identifier remain compatible. That legacy field now resolves to coral. New code should use semantic roles instead of the old color-named alias.
 
 | Role | Light foundation | Dark foundation |
 | --- | --- | --- |

@@ -6,13 +6,13 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:pathcraft_mobile/models/activity_model.dart';
-import 'package:pathcraft_mobile/screens/home_screen.dart';
-import 'package:pathcraft_mobile/services/auth_service.dart';
-import 'package:pathcraft_mobile/theme/app_theme.dart';
-import 'package:pathcraft_mobile/theme/design_tokens.dart';
-import 'package:pathcraft_mobile/widgets/home_dashboard.dart';
-import 'package:pathcraft_mobile/widgets/karipa_feedback.dart';
+import 'package:karipa/models/activity_model.dart';
+import 'package:karipa/screens/home_screen.dart';
+import 'package:karipa/services/auth_service.dart';
+import 'package:karipa/theme/app_theme.dart';
+import 'package:karipa/theme/design_tokens.dart';
+import 'package:karipa/widgets/home_dashboard.dart';
+import 'package:karipa/widgets/karipa_feedback.dart';
 
 // Test-only data. Production Home continues to fetch through ApiService.
 final records = [

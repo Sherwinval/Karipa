@@ -18,7 +18,7 @@ app.use('/api/routes', routeRouter);
 app.get('/api/health', (_req, res) => {
     res.status(200).json({
         success: true,
-        message: 'PathCraft API is running',
+        message: 'Karipa API is running',
     });
 });
 app.get('/api/health/database', async (_req, res) => {
@@ -45,7 +45,7 @@ app.use((err, _req, res, _next) => {
     });
 });
 app.listen(port, () => {
-    console.log(`PathCraft backend listening on port ${port}`);
+    console.log(`Karipa backend listening on port ${port}`);
 });
 process.on('SIGTERM', async () => {
     await prisma.$disconnect();

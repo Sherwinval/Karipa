@@ -8,7 +8,7 @@ app = Flask(__name__)
 
 @app.get('/health')
 def health():
-    return jsonify(success=True, message='PathCraft AI service is running', model='scikit-learn-v1.5')
+    return jsonify(success=True, message='Karipa AI service is running', model='scikit-learn-v1.5')
 
 
 @app.post('/recommend')

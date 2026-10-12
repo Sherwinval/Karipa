@@ -1,6 +1,6 @@
 # Karipa frontend development guide
 
-Phase 0 baseline: 2026-10-10 (Asia/Manila). PathCraft remains the academic and technical project; Karipa is the displayed mobile application name.
+Phase 0 baseline: 2026-10-10 (Asia/Manila). The project and its mobile application are both named Karipa.
 
 Read [mobile/AGENTS.md](../mobile/AGENTS.md) for scope and protected boundaries. The [approved design system](karipa-design-system.md) replaces the historical palette exploration. See the [Phase 1 report](frontend-phase1-report.md) for current checks, the [Phase 0 report](frontend-phase0-report.md) for the original baseline, and [Graphify evaluation](graphify-evaluation.md) for the tooling decision.
 
@@ -28,7 +28,7 @@ Doctor currently reports missing Android command-line tools and unknown Android 
 - `lib/main.dart`: Material app, authentication Provider, named navigation via `onGenerateRoute`.
 - `lib/screens/`: 17 screen files, 15 registered screens. `routes_screen.dart` is a placeholder and `activity_setup_screen.dart` is an unused simulated flow.
 - `lib/widgets/`: shared map, metric tile, status badge, and Phase 1 presentation components for actions, activity choice, route cards, headings, feedback, and progress. New components are not yet wired into screen redesigns.
-- `lib/theme/`: explicit five-color Material 3 schemes, Inter/Manrope, `PathCraftColors`, and spacing/radius/size tokens. Many screens still override the theme. Light mode remains forced by the existing app; dark component styling is available for later screen work.
+- `lib/theme/`: explicit five-color Material 3 schemes, Inter/Manrope, `KaripaColors`, and spacing/radius/size tokens. Many screens still override the theme. Light mode remains forced by the existing app; dark component styling is available for later screen work.
 - `lib/services/` and `lib/models/`: protected integrations/data. Authentication uses Provider/ChangeNotifier and SharedPreferences; other state resides in screens.
 - `test/widget_test.dart`: existing app-launch smoke test with a known pending-timer failure; `test/design_system_test.dart`: focused Phase 1 contrast, responsiveness, semantics, and callback tests.
 

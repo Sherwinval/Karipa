@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'design_tokens.dart';
 
-class PathCraftColors extends ThemeExtension<PathCraftColors> {
+class KaripaColors extends ThemeExtension<KaripaColors> {
   final Color primary;
   final Color primaryDark;
   final Color primaryLight;
@@ -23,7 +23,7 @@ class PathCraftColors extends ThemeExtension<PathCraftColors> {
   final Color danger;
   final Color dangerLight;
 
-  const PathCraftColors({
+  const KaripaColors({
     required this.primary,
     required this.primaryDark,
     required this.primaryLight,
@@ -45,7 +45,7 @@ class PathCraftColors extends ThemeExtension<PathCraftColors> {
     required this.dangerLight,
   });
 
-  static const PathCraftColors defaultPalette = PathCraftColors(
+  static const KaripaColors defaultPalette = KaripaColors(
     primary: KaripaPalette.coral,
     primaryDark: KaripaPalette.midnight,
     primaryLight: KaripaPalette.ivory,
@@ -78,11 +78,11 @@ class PathCraftColors extends ThemeExtension<PathCraftColors> {
   Color get disabledSurface => mutedLight;
   Color get onDisabledSurface => mutedText;
 
-  static PathCraftColors of(BuildContext context) =>
-      Theme.of(context).extension<PathCraftColors>() ?? defaultPalette;
+  static KaripaColors of(BuildContext context) =>
+      Theme.of(context).extension<KaripaColors>() ?? defaultPalette;
 
   @override
-  PathCraftColors copyWith({
+  KaripaColors copyWith({
     Color? primary,
     Color? primaryDark,
     Color? primaryLight,
@@ -103,7 +103,7 @@ class PathCraftColors extends ThemeExtension<PathCraftColors> {
     Color? danger,
     Color? dangerLight,
   }) {
-    return PathCraftColors(
+    return KaripaColors(
       primary: primary ?? this.primary,
       primaryDark: primaryDark ?? this.primaryDark,
       primaryLight: primaryLight ?? this.primaryLight,
@@ -127,12 +127,12 @@ class PathCraftColors extends ThemeExtension<PathCraftColors> {
   }
 
   @override
-  PathCraftColors lerp(ThemeExtension<PathCraftColors>? other, double t) {
-    if (other is! PathCraftColors) {
+  KaripaColors lerp(ThemeExtension<KaripaColors>? other, double t) {
+    if (other is! KaripaColors) {
       return this;
     }
 
-    return PathCraftColors(
+    return KaripaColors(
       primary: Color.lerp(primary, other.primary, t) ?? primary,
       primaryDark: Color.lerp(primaryDark, other.primaryDark, t) ?? primaryDark,
       primaryLight:
@@ -171,7 +171,7 @@ class AppTheme {
   }) {
     final dark = brightness == Brightness.dark;
     final scheme = _colorScheme(brightness);
-    final tokens = PathCraftColors.defaultPalette.copyWith(
+    final tokens = KaripaColors.defaultPalette.copyWith(
       pageBackground: scheme.surface,
       surface: scheme.surfaceContainerLow,
       border: scheme.outline,

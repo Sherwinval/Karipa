@@ -78,7 +78,7 @@ describe('Routing Service & AI Recommendation', () => {
     });
 });
 describe('Full End-to-End API Suite', () => {
-    const testEmail = `test-user-${Date.now()}@pathcraft.local`;
+    const testEmail = `test-user-${Date.now()}@karipa.local`;
     const testPassword = 'Password123!';
     let authToken = '';
     let createdUserId = '';

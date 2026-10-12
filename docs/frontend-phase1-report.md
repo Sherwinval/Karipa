@@ -11,7 +11,7 @@ During work, `.idea/caches/deviceStreaming.xml` also became modified outside the
 ## Implementation
 
 - Exact tokens: coral `#FF5A49`, midnight `#0C0B10`, stone `#CFCDBE`, ivory `#E3E0D3`, charcoal `#2B2B2B`. No additional brand/semantic colors, mint, teal, green, or seed-generated tones in the shared theme/widgets.
-- Explicit light and dark Material 3 roles, component themes, preserved `PathCraftColors` extension, route/metric/disabled semantic getters, and consistent spacing/radii/sizes.
+- Explicit light and dark Material 3 roles, component themes, preserved `KaripaColors` extension, route/metric/disabled semantic getters, and consistent spacing/radii/sizes.
 - Manrope display/headline scale 24–48; Inter body/title/label scale 14–22. Prominent metrics use 40, normal metric values 24, with tabular figures and visible units.
 - Spacing 4/8/12/16/24/32/48; control/panel/card radii 12/16/24; 56-high actions and 48-pixel minimum touch targets.
 - Compatible metric/status components; presentation-only actions, activity and route cards, section heading, feedback, and progress components.

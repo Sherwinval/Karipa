@@ -1,12 +1,12 @@
 # Local PostgreSQL Setup
 
-PathCraft uses PostgreSQL installed directly on the development machine. Docker is not required.
+Karipa uses PostgreSQL installed directly on the development machine. Docker is not required.
 
 ## Required configuration
 
 1. Install PostgreSQL 16 locally and ensure the PostgreSQL service is running.
 2. Install PostGIS for the same PostgreSQL major version using StackBuilder or the PostGIS Windows installer.
-3. Create a database named `pathcraft`.
+3. Create a database named `karipa`.
 4. Enable PostGIS in that database:
 
 ```sql

@@ -2,7 +2,7 @@
 
 ## Identity and scope
 
-- PathCraft is the academic/technical project: AI-Assisted Multi-Activity Route Generator and Fitness Tracking System. Karipa is the user-facing mobile brand, derived from *karipas* and associated with movement, effort, determination, and reaching a target distance.
+- Karipa is the project and user-facing mobile identity, derived from *karipas* and associated with movement, effort, determination, and reaching a target distance. The project is an AI-assisted multi-activity route generator and fitness tracking system.
 - Give walking, jogging, running, and cycling equal prominence. Do not assume every user is a runner.
 - The project owner's responsibility here is Flutter frontend development and mobile UI/UX: presentation, layouts, reusable visual components, responsive behavior, accessibility, and visual interactions.
 - Current authorization is a frontend-wide color update: white light-mode content, the existing ivory/beige on supporting surfaces, and coral primary actions. Preserve layouts, content, routes, interactions, data bindings and the existing theme toggle. Dark mode remains available. This supersedes the previous Home-only color scope; it does not authorize other screen redesigns or functional changes.
@@ -15,7 +15,7 @@
 - Business logic remains protected even when embedded in a screen: authentication, API/HTTP contracts, GPS permissions/subscriptions/calculations, route generation/ranking, timers, activity persistence, and saving/error-result handling.
 - Preserve callbacks, navigation destinations, route arguments, state transitions, data bindings, lifecycle ownership, and integrations. Do not move service calls into `build` or presentation widgets.
 - Report any required functional change separately for team review. Do not hide a functional fix inside styling or copy changes.
-- Preserve `pathcraft_mobile`, `PathCraftApp`, `PathCraftColors`, Android application ID, iOS bundle identifier, route names, repository identity, and backend names. Rebrand selected displayed strings, never global-replace identifiers.
+- Preserve `karipa`, `KaripaApp`, `KaripaColors`, Android application ID, iOS bundle identifier, route names, repository identity, and backend names. Rebrand selected displayed strings, never global-replace identifiers.
 - Native platform rebranding is limited to the Android application label and iOS `CFBundleDisplayName`. Inspect and report unexpected configuration before altering other keys.
 - Do not add/remove/upgrade dependencies, introduce assets, run migrations/backend tests, or commit/push without explicit task authorization.
 

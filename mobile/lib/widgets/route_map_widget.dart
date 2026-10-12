@@ -49,7 +49,7 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
 
   @override
   Widget build(BuildContext context) {
-    final colors = PathCraftColors.of(context);
+    final colors = KaripaColors.of(context);
     final markers = <Marker>[];
 
     // Start/end remain distinct by symbol as well as fill.
@@ -177,7 +177,7 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
             children: [
               TileLayer(
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.pathcraft.mobile',
+                userAgentPackageName: 'com.karipa.mobile',
               ),
               PolylineLayer(polylines: polylines),
               MarkerLayer(markers: markers),

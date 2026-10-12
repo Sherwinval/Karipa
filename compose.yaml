@@ -1,6 +1,6 @@
 services:
-  pathcraftbackend:
-    image: pathcraftbackend
+  karipabackend:
+    image: karipabackend
     build:
       context: backend
       dockerfile: ./Dockerfile

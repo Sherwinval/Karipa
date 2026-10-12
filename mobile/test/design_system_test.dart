@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pathcraft_mobile/theme/app_theme.dart';
-import 'package:pathcraft_mobile/theme/design_tokens.dart';
-import 'package:pathcraft_mobile/widgets/activity_selection_card.dart';
-import 'package:pathcraft_mobile/widgets/karipa_button.dart';
-import 'package:pathcraft_mobile/widgets/karipa_feedback.dart';
-import 'package:pathcraft_mobile/widgets/metric_tile.dart';
-import 'package:pathcraft_mobile/widgets/route_recommendation_card.dart';
-import 'package:pathcraft_mobile/widgets/section_heading.dart';
-import 'package:pathcraft_mobile/widgets/status_badge.dart';
+import 'package:karipa/theme/app_theme.dart';
+import 'package:karipa/theme/design_tokens.dart';
+import 'package:karipa/widgets/activity_selection_card.dart';
+import 'package:karipa/widgets/karipa_button.dart';
+import 'package:karipa/widgets/karipa_feedback.dart';
+import 'package:karipa/widgets/metric_tile.dart';
+import 'package:karipa/widgets/route_recommendation_card.dart';
+import 'package:karipa/widgets/section_heading.dart';
+import 'package:karipa/widgets/status_badge.dart';
 
 double contrast(Color a, Color b) {
   final l1 = a.computeLuminance();
@@ -98,7 +98,7 @@ void main() {
               greaterThanOrEqualTo(3));
         }
       }
-      final tokens = theme.extension<PathCraftColors>()!;
+      final tokens = theme.extension<KaripaColors>()!;
       expect(contrast(tokens.routeHighlight, tokens.routeCasing),
           greaterThanOrEqualTo(3));
       expect(contrast(tokens.recordedTrack, tokens.recordedTrackCasing),

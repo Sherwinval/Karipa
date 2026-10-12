@@ -1,11 +1,11 @@
 # Karipa UI foundation — Stage 1
-PathCraft remains the repository and technical identity; Karipa is the UI brand.
+Karipa is the project, technical, and user-facing identity.
 Represent walking, jogging, running, and cycling equally.
 Primary orange: #FF5A24 for energetic actions and accents.
 Deep navy: #1A1E27 for brand backgrounds, dark mode, and light-mode ink.
 Clean content surface: #FFFFFF; supporting ivory: #E3E0D3.
 Stone #CFCDBE and charcoal #2B2B2B support borders and secondary content.
-Use ColorScheme and PathCraftColors roles rather than per-screen palettes.
+Use ColorScheme and KaripaColors roles rather than per-screen palettes.
 Legacy coral/midnight identifiers alias orange/navy for compatibility.
 Use navy foregrounds on orange controls; avoid small white text on orange.
 Official assets: mobile/assets/branding/karipa-logo.png and karipa-wordmark.png.

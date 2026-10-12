@@ -1,6 +1,6 @@
-# PathCraft
+# Karipa
 
-PathCraft is a capstone project that generates personalized outdoor routes for walking, jogging, running, and cycling using route data, geographic features, and recommendation logic.
+Karipa is a capstone project that generates personalized outdoor routes for walking, jogging, running, and cycling using route data, geographic features, and recommendation logic.
 
 ## Architecture
 
@@ -19,7 +19,7 @@ The backend ranks valid route candidates deterministically: distance accuracy is
 
 ## Prerequisites Check
 
-Before running PathCraft, ensure you have the following installed:
+Before running Karipa, ensure you have the following installed:
 
 - **Git**
 - **Node.js** (v20 or higher) and **npm**

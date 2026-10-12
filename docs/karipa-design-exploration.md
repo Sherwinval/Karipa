@@ -2,11 +2,11 @@
 
 **SUPERSEDED — 2026-10-11:** The user approved the coral/midnight/stone/ivory/charcoal identity for Phase 1. Trail Spark and every other palette below are historical exploration, not current implementation guidance. Use the [approved Karipa design system](karipa-design-system.md).
 
-Phase 0, 2026-10-10. No palette, typography, component, or map-style changes have been applied. The user's preference for Trail Spark is not final approval. PathCraft remains the academic/technical identity; Karipa represents movement and determination for walking, jogging, running, and cycling equally.
+Phase 0, 2026-10-10. No palette, typography, component, or map-style changes had been applied at this historical checkpoint. The user's preference for Trail Spark was not final approval. Karipa represents movement and determination for walking, jogging, running, and cycling equally.
 
 ## Current foundation
 
-`mobile/lib/theme/app_theme.dart` already defines Material 3, `PathCraftColors`, Inter body text, Manrope headings, 24-pixel card corners, and 16-pixel input corners. Existing forest/lime values are close to Trail Spark but not identical. Many screens instead hardcode teal `#0D9488`, slate, white, and their own spacing. `main.dart` forces light mode; the presence of `darkTheme` does not establish a finished dark design.
+`mobile/lib/theme/app_theme.dart` already defines Material 3, `KaripaColors`, Inter body text, Manrope headings, 24-pixel card corners, and 16-pixel input corners. Existing forest/lime values are close to Trail Spark but not identical. Many screens instead hardcode teal `#0D9488`, slate, white, and their own spacing. `main.dart` forces light mode; the presence of `darkTheme` does not establish a finished dark design.
 
 Preserve these technical names and the current architecture. After approval, consolidate colors and component themes before changing screen layouts. A seed-generated ColorScheme alone will not fix hardcoded screen colors or guarantee the exact contrast pairs below.
 
@@ -126,7 +126,7 @@ Against white casing: forest **12.33:1**, charcoal **13.02:1**, ocean **11.36:1*
 Subject to approval, Phase 1 should:
 
 1. Confirm the palette, exact contrast-safe roles, supplied capstone requirements, target devices, and design reference. Record the final decision separately from this exploration.
-2. Consolidate existing `AppTheme`/`PathCraftColors` into an approved light Material 3 theme: colors, typography, spacing, radii, buttons, inputs, cards, and statuses. Preserve internal identifiers and avoid dependencies.
+2. Consolidate existing `AppTheme`/`KaripaColors` into an approved light Material 3 theme: colors, typography, spacing, radii, buttons, inputs, cards, and statuses. Preserve internal identifiers and avoid dependencies.
 3. Establish small reusable presentation components for activity choice, metric/unit display, status, and primary/secondary actions. Pass existing data/callbacks; preserve screen state/lifecycle ownership.
 4. Review one approved representative screen and a workout-metric example at compact/standard widths and enlarged text before widening the migration. A sample/review harness would require Phase 1 authorization; none was generated here.
 5. Add focused component/accessibility tests and deterministic visual comparisons; preserve the current baseline separately. Coordinate the splash smoke-test timer issue as its own scoped test fix.
