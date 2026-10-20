@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:karipa/models/activity_model.dart';
 import 'package:karipa/screens/home_screen.dart';
 import 'package:karipa/services/auth_service.dart';
+import 'package:karipa/services/unit_preferences.dart';
 import 'package:karipa/theme/app_theme.dart';
 import 'package:karipa/theme/design_tokens.dart';
 import 'package:karipa/widgets/home_dashboard.dart';
@@ -77,8 +78,11 @@ Future<void> mountHome(
           'name': 'Alexandria Long Family Name',
           'userId': 'test-only-user'
         });
-  await tester.pumpWidget(ChangeNotifierProvider(
-    create: (_) => AuthService(),
+  await tester.pumpWidget(MultiProvider(
+    providers: [
+      ChangeNotifierProvider(create: (_) => AuthService()),
+      ChangeNotifierProvider(create: (_) => UnitPreferences()),
+    ],
     child: MaterialApp(
       theme: AppTheme.buildTheme(useGoogleFonts: false, brightness: brightness),
       navigatorObservers: [if (observer != null) observer],
@@ -189,8 +193,7 @@ void main() {
             ['WALKING', 'CYCLING', 'JOGGING']);
         expect(cards.first.date, '9 Oct 2026');
         expect(cards.first.duration, '15:00');
-        expect(
-            cards.last.calories, '0'); // Preserves the existing null fallback.
+        expect(cards.last.calories, 'Unavailable');
         expect(Theme.of(tester.element(find.byType(HomeDashboard))).brightness,
             brightness);
         expect(
@@ -262,6 +265,12 @@ void main() {
       await tester.tap(find.text('Return to Home'));
       await tester.pumpAndSettle();
       expect(requests, 4);
+      await tester.tap(find.text('Leaderboard'));
+      await tester.pumpAndSettle();
+      expect(observer.pushes.last.name, '/leaderboard');
+      await tester.tap(find.text('Return to Home'));
+      await tester.pumpAndSettle();
+      expect(requests, 5);
       final count = observer.pushes.length;
       await tester.tap(find.text('Home'));
       await tester.pumpAndSettle();
@@ -272,7 +281,7 @@ void main() {
       expect(observer.pushes.last.name, '/activity_history');
       await tester.tap(find.text('Return to Home'));
       await tester.pumpAndSettle();
-      expect(requests, 4); // View all did not refresh in the original screen.
+      expect(requests, 5); // View all did not refresh in the original screen.
       await tester.ensureVisible(find.byType(HomeRecentActivityCard).first);
       await tester.tap(find.byType(HomeRecentActivityCard).first);
       await tester.pumpAndSettle();
@@ -282,13 +291,13 @@ void main() {
       expect((args['activity'] as ActivityModel).id, 'walk');
       await tester.tap(find.text('Return to Home'));
       await tester.pumpAndSettle();
-      expect(requests, 4);
+      expect(requests, 5);
       final refresh = tester
           .state<RefreshIndicatorState>(find.byType(RefreshIndicator))
           .show();
       await tester.pumpAndSettle();
       await refresh;
-      expect(requests, 5);
+      expect(requests, 6);
     },
         () => MockClient((request) async {
               requests++;

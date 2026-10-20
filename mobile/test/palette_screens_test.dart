@@ -10,6 +10,7 @@ import 'package:karipa/theme/app_theme.dart';
 import 'package:karipa/theme/design_tokens.dart';
 import 'package:karipa/services/auth_service.dart';
 import 'package:karipa/services/theme_service.dart';
+import 'package:karipa/services/unit_preferences.dart';
 import 'package:karipa/models/route_model.dart';
 import 'package:karipa/screens/home_screen.dart';
 import 'package:karipa/screens/login_screen.dart';
@@ -108,6 +109,7 @@ void main() {
             providers: [
               ChangeNotifierProvider(create: (_) => AuthService()),
               ChangeNotifierProvider(create: (_) => ThemeService()),
+              ChangeNotifierProvider(create: (_) => UnitPreferences()),
             ],
             child: RepaintBoundary(
                 key: boundary,
@@ -120,6 +122,11 @@ void main() {
           ));
           await tester.pumpAndSettle();
           if (entry.key == 'exit-dialog') {
+            await tester.scrollUntilVisible(
+              find.text('Exit Guest Mode'),
+              400,
+              scrollable: find.byType(Scrollable).first,
+            );
             await tester.tap(find.text('Exit Guest Mode'));
             await tester.pumpAndSettle();
             expect(find.byType(AlertDialog), findsOneWidget);

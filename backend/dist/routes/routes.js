@@ -2,25 +2,24 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
-import { generateCandidateRoutes } from '../services/routingService.js';
+import { generateCandidateRoutes, GoogleRoutesError } from '../services/routingService.js';
 import { rankCandidateRoutes } from '../services/routeRankingService.js';
 export const routeRouter = Router();
 const generateSchema = z.object({
     activity: z.enum(['walking', 'jogging', 'running', 'cycling']).optional(),
     activityType: z.enum(['walking', 'jogging', 'running', 'cycling']).optional(),
-    targetDistanceKm: z.number().min(0.5).max(100),
+    targetDistanceKm: z.number().finite().positive(),
     preferences: z.object({
         avoidMajorRoads: z.boolean().optional(),
         preferSidewalks: z.boolean().optional(),
         preferLoop: z.boolean().optional(),
         preferCyclingInfrastructure: z.boolean().optional(),
-        avoidHills: z.boolean().optional(),
     }).default({}),
     startLocation: z.object({
         latitude: z.number().min(-90).max(90),
         longitude: z.number().min(-180).max(180),
     }),
-});
+}).refine((input) => input.activity !== undefined || input.activityType !== undefined, { message: 'Activity is required', path: ['activity'] });
 // Generate and rank routes (can be accessed by authenticated user or guest)
 routeRouter.post('/generate', async (req, res) => {
     const parsed = generateSchema.safeParse(req.body);
@@ -33,14 +32,24 @@ routeRouter.post('/generate', async (req, res) => {
         return;
     }
     const { targetDistanceKm, preferences, startLocation } = parsed.data;
-    const activity = parsed.data.activity || parsed.data.activityType || 'running';
+    const activity = parsed.data.activity ?? parsed.data.activityType;
+    if (!activity) {
+        res.status(400).json({ success: false, message: 'Select an activity type' });
+        return;
+    }
     try {
-        // 1. Generate real OSRM candidate routes
+        // 1. Generate candidates from Google Maps Routes API results
         const candidates = await generateCandidateRoutes(activity, targetDistanceKm, preferences, startLocation);
         if (candidates.length === 0) {
+            const configuredDeviation = process.env.ROUTE_MAX_DISTANCE_DEVIATION_KM;
             res.status(404).json({
                 success: false,
-                message: `Could not generate a valid route within 2 km of the requested ${targetDistanceKm} km distance. Try adjusting the target distance or route preferences.`,
+                message: configuredDeviation
+                    ? `No valid route was found within the configured ${configuredDeviation} km deviation of the requested ${targetDistanceKm} km. Try again or adjust the target distance.`
+                    : activity === 'cycling'
+                        ? 'Google Maps did not return a cycling route for this area. Cycling coverage is not verified here; no alternate routing provider is used.'
+                        : 'Google Maps did not return any valid routes. Check your connection and try again.',
+                provider: 'google_maps',
             });
             return;
         }
@@ -49,10 +58,13 @@ routeRouter.post('/generate', async (req, res) => {
         if (rankedRoutes.length === 0) {
             res.status(404).json({
                 success: false,
-                message: `Could not generate a valid route within 2 km of the requested ${targetDistanceKm} km distance. Try adjusting the target distance or route preferences.`,
+                message: 'The routing service did not return any valid routes. Check your connection and try again.',
             });
             return;
         }
+        const maximumDistanceDeviationKm = process.env.ROUTE_MAX_DISTANCE_DEVIATION_KM
+            ? Number(process.env.ROUTE_MAX_DISTANCE_DEVIATION_KM)
+            : null;
         res.json({
             success: true,
             routes: rankedRoutes,
@@ -60,15 +72,30 @@ routeRouter.post('/generate', async (req, res) => {
                 totalGenerated: candidates.length,
                 activity,
                 targetDistanceKm,
+                maximumDistanceDeviationKm,
+                closeCandidateAvailable: maximumDistanceDeviationKm === null
+                    ? null
+                    : rankedRoutes.some((route) => route.absoluteDistanceDeviationKm <= maximumDistanceDeviationKm),
+                rankingSource: rankedRoutes[0].rankingSource,
                 startLocation,
             },
         });
     }
     catch (error) {
+        if (error instanceof GoogleRoutesError) {
+            console.error(`Google Maps route generation failed (${error.providerStatus ?? error.statusCode})`);
+            res.status(error.statusCode).json({
+                success: false,
+                message: error.message,
+                provider: 'google_maps',
+            });
+            return;
+        }
         console.error('Route generation failed:', error);
         res.status(500).json({
             success: false,
-            message: 'Failed to generate routes. Please check connection to routing service.',
+            message: 'Google Maps route generation failed unexpectedly. Please retry.',
+            provider: 'google_maps',
         });
     }
 });
@@ -89,8 +116,8 @@ routeRouter.post('/recommend', async (req, res) => {
         return;
     }
     const target = Number(targetDistanceKm ?? 5);
-    if (!Number.isFinite(target) || target < 0.5 || target > 100) {
-        res.status(400).json({ success: false, message: 'Target distance must be between 0.5 and 100 km' });
+    if (!Number.isFinite(target) || target <= 0) {
+        res.status(400).json({ success: false, message: 'Target distance must be greater than zero km' });
         return;
     }
     const ranked = await rankCandidateRoutes(activity || 'running', target, preferences || {}, routes);
@@ -99,7 +126,7 @@ routeRouter.post('/recommend', async (req, res) => {
 // Save a selected route to user's saved routes
 routeRouter.post('/', requireAuth, async (req, res) => {
     try {
-        const { activityType, distanceKm, durationSeconds, score, routeData } = req.body;
+        const { activityType, distanceKm, durationSeconds, score } = req.body;
         const route = await prisma.route.create({
             data: {
                 userId: req.userId,
@@ -107,7 +134,7 @@ routeRouter.post('/', requireAuth, async (req, res) => {
                 distance: Number(distanceKm || 0),
                 duration: durationSeconds ? Math.round(Number(durationSeconds)) : null,
                 score: score ? Number(score) : null,
-                routeData: routeData || {},
+                routeData: {},
             },
         });
         res.status(201).json({
@@ -154,12 +181,16 @@ routeRouter.get('/', requireAuth, async (req, res) => {
     }
 });
 // Get specific route by id
-routeRouter.get('/:id', async (req, res) => {
+routeRouter.get('/:id', requireAuth, async (req, res) => {
     try {
         const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+        if (!/^\d+$/.test(String(rawId))) {
+            res.status(400).json({ success: false, message: 'Invalid route id' });
+            return;
+        }
         const routeId = BigInt(String(rawId));
-        const route = await prisma.route.findUnique({
-            where: { id: routeId },
+        const route = await prisma.route.findFirst({
+            where: { id: routeId, userId: req.userId },
         });
         if (!route) {
             res.status(404).json({ success: false, message: 'Route not found' });

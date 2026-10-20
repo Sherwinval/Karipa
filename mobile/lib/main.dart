@@ -22,9 +22,11 @@ import 'screens/activity_complete_screen.dart';
 import 'screens/activity_history_screen.dart';
 import 'screens/activity_details_screen.dart';
 import 'screens/profile_screen.dart';
+import 'screens/leaderboard_screen.dart';
 import 'theme/app_theme.dart';
 
 import 'services/theme_service.dart';
+import 'services/unit_preferences.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -33,6 +35,7 @@ void main() {
       providers: [
         ChangeNotifierProvider(create: (_) => AuthService()),
         ChangeNotifierProvider(create: (_) => ThemeService()),
+        ChangeNotifierProvider(create: (_) => UnitPreferences()),
       ],
       child: const KaripaApp(),
     ),
@@ -75,7 +78,8 @@ class KaripaApp extends StatelessWidget {
             return MaterialPageRoute(builder: (_) => const HomeScreen());
 
           case '/activity_selection':
-            return MaterialPageRoute(builder: (_) => const ActivitySelectionScreen());
+            return MaterialPageRoute(
+                builder: (_) => const ActivitySelectionScreen());
 
           case '/route_planning':
             return MaterialPageRoute(
@@ -89,7 +93,8 @@ class KaripaApp extends StatelessWidget {
               builder: (_) => RecommendedRoutesScreen(
                 routes: (args?['routes'] as List<PathRoute>?) ?? [],
                 activity: args?['activity'] ?? 'running',
-                targetDistanceKm: (args?['targetDistanceKm'] as num?)?.toDouble() ?? 5.0,
+                targetDistanceKm:
+                    (args?['targetDistanceKm'] as num?)?.toDouble() ?? 5.0,
                 currentLocation: args?['currentLocation'] as Position?,
               ),
             );
@@ -115,8 +120,9 @@ class KaripaApp extends StatelessWidget {
           case '/active_tracking':
             return MaterialPageRoute(
               builder: (_) => ActiveTrackingScreen(
-                route: args?['route'] as PathRoute,
+                route: args?['route'] as PathRoute?,
                 activity: args?['activity'] ?? 'running',
+                recordingMode: args?['recordingMode'] ?? 'plan_route',
                 initialPosition: args?['initialPosition'] as Position?,
               ),
             );
@@ -125,18 +131,38 @@ class KaripaApp extends StatelessWidget {
             return MaterialPageRoute(
               builder: (_) => ActivityCompleteScreen(
                 activityType: args?['activityType'] ?? 'running',
+                recordingMode: args?['recordingMode'] ?? 'plan_route',
                 distanceKm: (args?['distanceKm'] as num?)?.toDouble() ?? 0.0,
-                durationSeconds: (args?['durationSeconds'] as num?)?.toInt() ?? 0,
+                durationSeconds:
+                    (args?['durationSeconds'] as num?)?.toInt() ?? 0,
+                totalElapsedSeconds:
+                    (args?['totalElapsedSeconds'] as num?)?.toInt(),
+                startedAt: args?['startedAt'] as DateTime?,
+                completedAt: args?['completedAt'] as DateTime?,
                 paceOrSpeed: args?['paceOrSpeed'] ?? '--:--',
-                calories: (args?['calories'] as num?)?.toDouble() ?? 0.0,
-                route: args?['route'] as PathRoute,
+                averagePaceSecondsPerKm:
+                    (args?['averagePaceSecondsPerKm'] as num?)?.toDouble(),
+                averageSpeedKmh: (args?['averageSpeedKmh'] as num?)?.toDouble(),
+                calories: (args?['calories'] as num?)?.toDouble(),
+                calorieUnavailableReason:
+                    args?['calorieUnavailableReason']?.toString(),
+                calorieMetCode: args?['calorieMetCode']?.toString(),
+                calorieMetValue: (args?['calorieMetValue'] as num?)?.toDouble(),
+                calorieWeightKg: (args?['calorieWeightKg'] as num?)?.toDouble(),
+                calorieDurationMinutes:
+                    (args?['calorieDurationMinutes'] as num?)?.toDouble(),
+                calorieMethodVersion: args?['calorieMethodVersion']?.toString(),
+                route: args?['route'] as PathRoute?,
                 gpsPoints: (args?['gpsPoints'] as List<LatLng>?) ?? [],
-                savedLocally: args?['savedLocally'] as bool? ?? false,
+                gpsData:
+                    (args?['gpsData'] as List<Map<String, dynamic>>?) ?? [],
+                idempotencyKey: args?['idempotencyKey']?.toString() ?? '',
               ),
             );
 
           case '/activity_history':
-            return MaterialPageRoute(builder: (_) => const ActivityHistoryScreen());
+            return MaterialPageRoute(
+                builder: (_) => const ActivityHistoryScreen());
 
           case '/activity_details':
             return MaterialPageRoute(
@@ -147,6 +173,9 @@ class KaripaApp extends StatelessWidget {
 
           case '/profile':
             return MaterialPageRoute(builder: (_) => const ProfileScreen());
+
+          case '/leaderboard':
+            return MaterialPageRoute(builder: (_) => const LeaderboardScreen());
 
           default:
             return MaterialPageRoute(builder: (_) => const SplashScreen());

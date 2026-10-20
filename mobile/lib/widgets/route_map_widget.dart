@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart' as google_maps;
+import 'package:latlong2/latlong.dart' as geo;
 import '../theme/app_theme.dart';
 import '../theme/design_tokens.dart';
 
 class RouteMapWidget extends StatefulWidget {
-  final List<LatLng> routePoints;
-  final List<LatLng>? trackedPoints;
-  final LatLng? currentLocation;
+  final List<geo.LatLng> routePoints;
+  final List<geo.LatLng>? trackedPoints;
+  final geo.LatLng? currentLocation;
   final bool interactive;
   final double initialZoom;
 
@@ -25,163 +25,128 @@ class RouteMapWidget extends StatefulWidget {
 }
 
 class _RouteMapWidgetState extends State<RouteMapWidget> {
-  final MapController _mapController = MapController();
+  google_maps.GoogleMapController? _mapController;
 
-  LatLng get _initialCenter {
+  geo.LatLng get _initialCenter {
     if (widget.currentLocation != null) return widget.currentLocation!;
     if (widget.routePoints.isNotEmpty) return widget.routePoints.first;
-    // Manila default
-    return const LatLng(14.5995, 120.9842);
+    return const geo.LatLng(14.5995, 120.9842);
+  }
+
+  google_maps.LatLng _toGoogleLocation(geo.LatLng point) =>
+      google_maps.LatLng(point.latitude, point.longitude);
+
+  Future<void> _fitRoute() async {
+    final controller = _mapController;
+    if (controller == null || widget.routePoints.length < 2) return;
+
+    final latitudes = widget.routePoints.map((point) => point.latitude);
+    final longitudes = widget.routePoints.map((point) => point.longitude);
+    final bounds = google_maps.LatLngBounds(
+      southwest: google_maps.LatLng(
+        latitudes.reduce((a, b) => a < b ? a : b),
+        longitudes.reduce((a, b) => a < b ? a : b),
+      ),
+      northeast: google_maps.LatLng(
+        latitudes.reduce((a, b) => a > b ? a : b),
+        longitudes.reduce((a, b) => a > b ? a : b),
+      ),
+    );
+    await controller.animateCamera(
+      google_maps.CameraUpdate.newLatLngBounds(bounds, 48),
+    );
   }
 
   @override
   void didUpdateWidget(covariant RouteMapWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.currentLocation != null &&
-        (oldWidget.currentLocation == null ||
-            oldWidget.currentLocation != widget.currentLocation)) {
-      try {
-        _mapController.move(
-            widget.currentLocation!, _mapController.camera.zoom);
-      } catch (_) {}
+        oldWidget.currentLocation != widget.currentLocation) {
+      _mapController?.animateCamera(
+        google_maps.CameraUpdate.newLatLng(
+          _toGoogleLocation(widget.currentLocation!),
+        ),
+      );
+    } else if (oldWidget.routePoints != widget.routePoints) {
+      _fitRoute();
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final colors = KaripaColors.of(context);
-    final markers = <Marker>[];
-
-    // Start/end remain distinct by symbol as well as fill.
+    final markers = <google_maps.Marker>{};
     if (widget.routePoints.isNotEmpty) {
-      markers.add(
-        Marker(
-          point: widget.routePoints.first,
-          width: 32,
-          height: 32,
-          child: Container(
-            decoration: BoxDecoration(
-              color: colors.routeHighlight,
-              shape: BoxShape.circle,
-              border: Border.all(color: colors.routeCasing, width: 2.5),
-            ),
-            child: Icon(Icons.play_arrow,
-                color: colors.routeCasing,
-                size: 18,
-                semanticLabel: 'Route start'),
-          ),
+      markers.add(google_maps.Marker(
+        markerId: const google_maps.MarkerId('route-start'),
+        position: _toGoogleLocation(widget.routePoints.first),
+        infoWindow: const google_maps.InfoWindow(title: 'Route start'),
+        icon: google_maps.BitmapDescriptor.defaultMarkerWithHue(
+          google_maps.BitmapDescriptor.hueGreen,
         ),
-      );
+      ));
     }
-
-    // End marker (flag)
     if (widget.routePoints.length > 1) {
-      final lastPoint = widget.routePoints.last;
-      markers.add(
-        Marker(
-          point: lastPoint,
-          width: 32,
-          height: 32,
-          child: Container(
-            decoration: BoxDecoration(
-              color: colors.recordedTrack,
-              shape: BoxShape.circle,
-              border: Border.all(color: colors.recordedTrackCasing, width: 2.5),
-            ),
-            child: Icon(Icons.flag,
-                color: colors.recordedTrackCasing,
-                size: 16,
-                semanticLabel: 'Route finish'),
-          ),
+      markers.add(google_maps.Marker(
+        markerId: const google_maps.MarkerId('route-finish'),
+        position: _toGoogleLocation(widget.routePoints.last),
+        infoWindow: const google_maps.InfoWindow(title: 'Route finish'),
+        icon: google_maps.BitmapDescriptor.defaultMarkerWithHue(
+          google_maps.BitmapDescriptor.hueRed,
         ),
-      );
+      ));
     }
-
-    // Current position retains the existing concentric-dot geometry.
     if (widget.currentLocation != null) {
-      markers.add(
-        Marker(
-          point: widget.currentLocation!,
-          width: 26,
-          height: 26,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              Container(
-                width: 26,
-                height: 26,
-                decoration: BoxDecoration(
-                  color: colors.routeCasing,
-                  shape: BoxShape.circle,
-                ),
-              ),
-              Container(
-                width: 14,
-                height: 14,
-                decoration: BoxDecoration(
-                  color: colors.routeHighlight,
-                  shape: BoxShape.circle,
-                  border:
-                      Border.all(color: colors.recordedTrackCasing, width: 2),
-                ),
-              ),
-            ],
-          ),
+      markers.add(google_maps.Marker(
+        markerId: const google_maps.MarkerId('current-location'),
+        position: _toGoogleLocation(widget.currentLocation!),
+        infoWindow: const google_maps.InfoWindow(title: 'Current location'),
+        icon: google_maps.BitmapDescriptor.defaultMarkerWithHue(
+          google_maps.BitmapDescriptor.hueAzure,
         ),
-      );
+      ));
     }
 
-    final polylines = <Polyline>[];
-
-    // Coral route with contrasting casing; tile imagery is unchanged.
-    if (widget.routePoints.isNotEmpty) {
-      polylines.add(
-        Polyline(
-          points: widget.routePoints,
-          strokeWidth: 4.5,
-          color: colors.routeHighlight,
-          borderColor: colors.routeCasing,
-          borderStrokeWidth: 2,
-        ),
-      );
+    final polylines = <google_maps.Polyline>{};
+    if (widget.routePoints.length > 1) {
+      polylines.add(google_maps.Polyline(
+        polylineId: const google_maps.PolylineId('planned-route'),
+        points: widget.routePoints.map(_toGoogleLocation).toList(),
+        color: colors.routeHighlight,
+        width: 5,
+      ));
     }
-
-    // Recorded track has an independent neutral treatment.
-    if (widget.trackedPoints != null && widget.trackedPoints!.isNotEmpty) {
-      polylines.add(
-        Polyline(
-          points: widget.trackedPoints!,
-          strokeWidth: 5.5,
-          color: colors.recordedTrack,
-          borderColor: colors.recordedTrackCasing,
-          borderStrokeWidth: 2,
-        ),
-      );
+    if (widget.trackedPoints != null && widget.trackedPoints!.length > 1) {
+      polylines.add(google_maps.Polyline(
+        polylineId: const google_maps.PolylineId('recorded-gps-track'),
+        points: widget.trackedPoints!.map(_toGoogleLocation).toList(),
+        color: colors.recordedTrack,
+        width: 6,
+      ));
     }
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(AppRadii.panel),
       child: Stack(
         children: [
-          FlutterMap(
-            mapController: _mapController,
-            options: MapOptions(
-              initialCenter: _initialCenter,
-              initialZoom: widget.initialZoom,
-              interactionOptions: InteractionOptions(
-                flags: widget.interactive
-                    ? InteractiveFlag.all
-                    : InteractiveFlag.none,
-              ),
+          google_maps.GoogleMap(
+            initialCameraPosition: google_maps.CameraPosition(
+              target: _toGoogleLocation(_initialCenter),
+              zoom: widget.initialZoom,
             ),
-            children: [
-              TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.karipa.mobile',
-              ),
-              PolylineLayer(polylines: polylines),
-              MarkerLayer(markers: markers),
-            ],
+            markers: markers,
+            polylines: polylines,
+            myLocationEnabled: false,
+            zoomControlsEnabled: false,
+            compassEnabled: widget.interactive,
+            scrollGesturesEnabled: widget.interactive,
+            zoomGesturesEnabled: widget.interactive,
+            rotateGesturesEnabled: widget.interactive,
+            tiltGesturesEnabled: widget.interactive,
+            onMapCreated: (controller) {
+              _mapController = controller;
+              _fitRoute();
+            },
           ),
           if (widget.interactive && widget.currentLocation != null)
             Positioned(
@@ -192,9 +157,14 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
                 backgroundColor: KaripaPalette.ivory,
                 foregroundColor: KaripaPalette.midnight,
                 tooltip: 'Recenter map',
-                onPressed: () {
-                  _mapController.move(widget.currentLocation!, 16.0);
-                },
+                onPressed: () => _mapController?.animateCamera(
+                  google_maps.CameraUpdate.newCameraPosition(
+                    google_maps.CameraPosition(
+                      target: _toGoogleLocation(widget.currentLocation!),
+                      zoom: 16,
+                    ),
+                  ),
+                ),
                 child: const Icon(Icons.my_location),
               ),
             ),

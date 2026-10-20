@@ -129,6 +129,9 @@ const fitnessInsightsResultValidator = z.object({
     nextGoalSuggestion: z.string().min(1),
     warnings: z.array(z.string()),
 });
+const routeCandidateOrderValidator = z.object({
+    rankedRouteIds: z.array(z.string().min(1)).min(1),
+});
 // ---------------------------------------------------------------------------
 // System instruction
 // ---------------------------------------------------------------------------
@@ -297,6 +300,64 @@ export async function getRouteRecommendation(request, activities) {
             throw new GeminiServiceError('Gemini returned an empty response', 'EMPTY_RESPONSE', 502);
         }
         return parseModelResponse(text, routeRecommendationResultValidator);
+    }
+    catch (error) {
+        if (error instanceof GeminiServiceError)
+            throw error;
+        throw handleGeminiError(error);
+    }
+}
+/**
+ * Ask Gemini to break ties among already-valid routes. Coordinates, road names,
+ * account details, and GPS history are deliberately not sent.
+ */
+export async function rankRouteCandidateIds(activityType, targetDistanceKm, preferLoop, candidates) {
+    const client = getClient();
+    const candidateData = candidates.map((candidate) => ({
+        id: candidate.id,
+        distanceKm: candidate.distanceKm,
+        absoluteDeviationKm: candidate.absoluteDeviationKm,
+        isLoop: candidate.isLoop,
+    }));
+    const prompt = [
+        `Order these already-validated ${activityType} route identifiers.`,
+        `Requested target: ${targetDistanceKm} km. Prefer a loop: ${preferLoop}.`,
+        'Only use the supplied candidate IDs and facts. Return every ID exactly once.',
+        'This order is only a tie-breaker; server-side ranking always prioritizes actual distance deviation and confirmed preferences.',
+        JSON.stringify(candidateData),
+    ].join('\n');
+    try {
+        const response = await client.models.generateContent({
+            model: MODEL,
+            contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        rankedRouteIds: {
+                            type: Type.ARRAY,
+                            items: { type: Type.STRING },
+                        },
+                    },
+                    required: ['rankedRouteIds'],
+                },
+                temperature: 0,
+                maxOutputTokens: 1024,
+            },
+        });
+        if (!response.text) {
+            throw new GeminiServiceError('Gemini returned an empty ranking', 'EMPTY_RESPONSE', 502);
+        }
+        const parsed = parseModelResponse(response.text, routeCandidateOrderValidator);
+        const expectedIds = new Set(candidates.map((candidate) => candidate.id));
+        const returnedIds = new Set(parsed.rankedRouteIds);
+        if (parsed.rankedRouteIds.length !== candidates.length ||
+            returnedIds.size !== candidates.length ||
+            parsed.rankedRouteIds.some((id) => !expectedIds.has(id))) {
+            throw new GeminiServiceError('Gemini returned missing, duplicate, or unknown route identifiers', 'INVALID_RESPONSE', 502);
+        }
+        return parsed.rankedRouteIds;
     }
     catch (error) {
         if (error instanceof GeminiServiceError)

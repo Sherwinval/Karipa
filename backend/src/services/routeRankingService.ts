@@ -3,21 +3,35 @@ import {
   type CandidateRoute,
   type RoutePreferences,
 } from './routingService.js';
+import {
+  rankRouteCandidateIds,
+  type RouteCandidateForRanking,
+} from './geminiService.js';
 
 export interface RankedRoute extends CandidateRoute {
+  targetDistanceKm: number;
   score: number;
   rank: number;
   isTopRecommendation: boolean;
   suitability: string;
   matchLabel: string;
   reasoning: string;
+  absoluteDistanceDeviationKm: number;
+  percentageDistanceDeviation: number;
+  rankingSource: 'ai_assisted' | 'deterministic_fallback';
 }
+
+export type RouteCandidateRanker = (
+  activity: string,
+  targetDistanceKm: number,
+  preferLoop: boolean,
+  candidates: RouteCandidateForRanking[],
+) => Promise<string[]>;
 
 interface ScoredRoute {
   route: CandidateRoute;
   distanceDeltaKm: number;
   preferenceScore: number;
-  qualityScore: number;
   score: number;
 }
 
@@ -34,72 +48,126 @@ function preferenceScore(route: CandidateRoute, preferences: RoutePreferences, a
     if (route.features.isLoop) score++;
   }
   if (preferences.avoidMajorRoads) {
-    criteria++;
-    score += 1 - ratio(route.features.majorRoadRatio);
+    if (route.features.majorRoadRatio !== undefined) {
+      criteria++;
+      score += 1 - ratio(route.features.majorRoadRatio);
+    }
   }
   if (preferences.preferSidewalks) {
-    criteria++;
-    score += ratio(route.features.sidewalkRatio);
+    if (route.features.sidewalkRatio !== undefined) {
+      criteria++;
+      score += ratio(route.features.sidewalkRatio);
+    }
   }
-  if (preferences.preferCyclingInfrastructure || activity === 'cycling') {
-    criteria++;
-    score += ratio(route.features.cyclingLaneRatio);
+  if (preferences.preferCyclingInfrastructure) {
+    if (route.features.cyclingLaneRatio !== undefined) {
+      criteria++;
+      score += ratio(route.features.cyclingLaneRatio);
+    }
   }
-  if (preferences.avoidHills) {
-    criteria++;
-    score += route.features.elevationGainM !== undefined
-      ? 1 - Math.min(1, Math.max(0, route.features.elevationGainM) / Math.max(100, route.distanceKm * 20))
-      : 0;
-  }
-
   return criteria === 0 ? 0.5 : score / criteria;
-}
-
-function routeQualityScore(route: CandidateRoute): number {
-  const geometry = route.geometry.coordinates;
-  const uniquePoints = new Set(geometry.map(([longitude, latitude]) => `${longitude.toFixed(4)},${latitude.toFixed(4)}`));
-  const shapeScore = Math.min(1, uniquePoints.size / Math.max(4, geometry.length * 0.5));
-  const hasRoadData = route.features.roadTypes.length > 0 ? 1 : 0.5;
-  return (shapeScore + hasRoadData) / 2;
 }
 
 export async function rankCandidateRoutes(
   activity: string,
   targetDistanceKm: number,
   preferences: RoutePreferences,
-  routes: CandidateRoute[]
+  routes: CandidateRoute[],
+  aiRanker: RouteCandidateRanker = rankRouteCandidateIds,
 ): Promise<RankedRoute[]> {
+  if (!Number.isFinite(targetDistanceKm) || targetDistanceKm <= 0) return [];
   const validatedRoutes = validateAndDeduplicateCandidateRoutes(routes, targetDistanceKm);
   if (validatedRoutes.length === 0) return [];
 
   const scored: ScoredRoute[] = validatedRoutes.map((route) => {
     const distanceDeltaKm = Math.abs(route.distanceKm - targetDistanceKm);
-    const distanceScore = Math.max(0, 100 - (distanceDeltaKm / Math.max(targetDistanceKm, 1)) * 100);
+    const distanceScore = Math.max(0, 100 - (distanceDeltaKm / targetDistanceKm) * 100);
     const preferencesScore = preferenceScore(route, preferences, activity.toLowerCase());
-    const qualityScore = routeQualityScore(route);
 
     return {
       route,
       distanceDeltaKm,
       preferenceScore: preferencesScore,
-      qualityScore,
-      score: Number((distanceScore * 0.7 + preferencesScore * 20 + qualityScore * 10).toFixed(1)),
+      score: Number(distanceScore.toFixed(1)),
     };
   });
+
+  let aiOrder: Map<string, number> | undefined;
+  let aiResolvedTie = false;
+  if (process.env.AI_ROUTE_RANKING_ENABLED?.trim().toLowerCase() !== 'false') {
+    const primaryOrder = [...scored].sort((a, b) =>
+      a.distanceDeltaKm - b.distanceDeltaKm ||
+      b.preferenceScore - a.preferenceScore ||
+      a.route.id.localeCompare(b.route.id)
+    );
+    const tiedGroups: ScoredRoute[][] = [];
+    for (const item of primaryOrder) {
+      const currentGroup = tiedGroups[tiedGroups.length - 1];
+      if (
+        currentGroup &&
+        currentGroup[0].distanceDeltaKm === item.distanceDeltaKm &&
+        currentGroup[0].preferenceScore === item.preferenceScore
+      ) {
+        currentGroup.push(item);
+      } else {
+        tiedGroups.push([item]);
+      }
+    }
+
+    aiOrder = new Map();
+    for (const group of tiedGroups) {
+      if (group.length < 2) continue;
+      try {
+        const candidates = group.map(({ route, distanceDeltaKm }) => ({
+          id: route.id,
+          distanceKm: route.distanceKm,
+          absoluteDeviationKm: distanceDeltaKm,
+          isLoop: route.features.isLoop,
+        }));
+        const aiRankedIds = await aiRanker(
+          activity,
+          targetDistanceKm,
+          preferences.preferLoop === true,
+          candidates,
+        );
+        const validIds = new Set(candidates.map(({ id }) => id));
+        const returnedIds = new Set(aiRankedIds);
+        if (
+          aiRankedIds.length !== validIds.size ||
+          returnedIds.size !== validIds.size ||
+          aiRankedIds.some((id) => !validIds.has(id))
+        ) {
+          throw new Error('AI returned missing, duplicate, or unknown route identifiers');
+        }
+        aiResolvedTie = true;
+        aiRankedIds.forEach((id, index) => aiOrder!.set(id, index));
+      } catch (error) {
+        const errorCode = typeof error === 'object' && error !== null && 'code' in error
+          ? String(error.code)
+          : 'INVALID_RANKING';
+        console.warn(`AI route tie-break unavailable (${errorCode}); using deterministic fallback`);
+      }
+    }
+    if (!aiResolvedTie) aiOrder = undefined;
+  }
 
   scored.sort((a, b) =>
     a.distanceDeltaKm - b.distanceDeltaKm ||
     b.preferenceScore - a.preferenceScore ||
-    b.qualityScore - a.qualityScore ||
+    (aiOrder?.get(a.route.id) ?? 0) - (aiOrder?.get(b.route.id) ?? 0) ||
     a.route.id.localeCompare(b.route.id)
   );
 
   return scored.map((item, index) => {
     const reasons: string[] = [`${item.route.distanceKm.toFixed(2)} km; ${item.distanceDeltaKm.toFixed(2)} km from target`];
     if (preferences.preferLoop && item.route.features.isLoop) reasons.push('Preferred loop route');
-    if (preferences.avoidMajorRoads && item.route.features.majorRoadRatio < 0.15) reasons.push('Low major-road exposure');
-    if (preferences.preferSidewalks && item.route.features.sidewalkRatio >= 0.7) reasons.push('Sidewalk-friendly');
-    if ((preferences.preferCyclingInfrastructure || activity.toLowerCase() === 'cycling') &&
+    if (preferences.avoidMajorRoads && item.route.features.majorRoadRatio !== undefined) {
+      if (item.route.features.majorRoadRatio < 0.15) reasons.push('Low major-road exposure');
+    }
+    if (preferences.preferSidewalks && item.route.features.sidewalkRatio !== undefined &&
+      item.route.features.sidewalkRatio >= 0.7) reasons.push('Sidewalk preference matched in available data');
+    if (preferences.preferCyclingInfrastructure &&
+      item.route.features.cyclingLaneRatio !== undefined &&
       item.route.features.cyclingLaneRatio >= 0.5) {
       reasons.push('Cycling infrastructure available');
     }
@@ -112,12 +180,16 @@ export async function rankCandidateRoutes(
 
     return {
       ...item.route,
+      targetDistanceKm,
       score: item.score,
       rank: index + 1,
       isTopRecommendation: index === 0,
       suitability,
       matchLabel: index === 0 ? 'Best Match' : item.score >= 70 ? 'Recommended' : 'Alternative',
       reasoning: reasons.join(' • '),
+      absoluteDistanceDeviationKm: Number(item.distanceDeltaKm.toFixed(2)),
+      percentageDistanceDeviation: Number(((item.distanceDeltaKm / targetDistanceKm) * 100).toFixed(1)),
+      rankingSource: aiOrder ? 'ai_assisted' : 'deterministic_fallback',
     };
   });
 }

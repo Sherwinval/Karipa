@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../theme/design_tokens.dart';
 import '../services/location_service.dart';
 import '../services/api_service.dart';
+import '../services/unit_preferences.dart';
 
 class RoutePlanningScreen extends StatefulWidget {
   final String activity;
@@ -13,6 +15,7 @@ class RoutePlanningScreen extends StatefulWidget {
 }
 
 class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
+  final _distanceFormKey = GlobalKey<FormState>();
   double _targetDistanceKm = 5.0;
   final TextEditingController _customDistanceController =
       TextEditingController();
@@ -39,20 +42,29 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
   }
 
   Future<void> _handleGenerateRoutes() async {
+    if (_isCustomDistance && !_distanceFormKey.currentState!.validate()) {
+      return;
+    }
+    final displayedDistance = _isCustomDistance
+        ? double.tryParse(_customDistanceController.text.trim())
+        : _targetDistanceKm;
+    if (displayedDistance == null ||
+        !displayedDistance.isFinite ||
+        displayedDistance <= 0) {
+      setState(() => _errorMessage =
+          'Enter a positive target distance in ${context.read<UnitPreferences>().distanceUnit}.');
+      return;
+    }
+    final distance = _isCustomDistance
+        ? context.read<UnitPreferences>().distanceToKm(displayedDistance)
+        : displayedDistance;
+
     setState(() {
       _isGenerating = true;
       _errorMessage = null;
     });
 
     try {
-      final distance = _isCustomDistance
-          ? double.tryParse(_customDistanceController.text)
-          : _targetDistanceKm;
-      if (distance == null || distance < 0.5 || distance > 100) {
-        throw Exception(
-            'Please specify a valid distance between 0.5 km and 100 km.');
-      }
-
       // 1. Acquire real GPS Location
       final permissionStatus =
           await LocationService.checkAndRequestPermission();
@@ -62,10 +74,10 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
             'Location services are turned off on your device. Please enable GPS in your device settings.');
       } else if (permissionStatus == LocationStatus.permissionDenied) {
         throw Exception(
-            'Location permission was denied. Karipa requires location to generate routes starting from your position.');
+            'Location permission was denied. Allow location access to create routes from your current position, then retry.');
       } else if (permissionStatus == LocationStatus.permissionDeniedForever) {
         throw Exception(
-            'Location permissions are permanently denied. Please open App Settings to grant location access.');
+            'Location permission is blocked. Open your device settings to allow location access, then retry route planning.');
       }
 
       final position = await LocationService.getCurrentPosition();
@@ -117,6 +129,7 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final units = context.watch<UnitPreferences>();
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: AppBar(
@@ -147,7 +160,7 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                             size: 22),
                         const SizedBox(width: 8),
                         Text(
-                          'Target Distance',
+                          'Target Distance (${units.distanceUnit})',
                           style: TextStyle(
                               fontSize: 17,
                               fontWeight: FontWeight.bold,
@@ -158,26 +171,50 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                     const SizedBox(height: 16),
                     Row(
                       children: [
-                        _buildPresetChip(3.0, '3 km'),
+                        _buildPresetChip(3.0,
+                            '${units.distanceFromKm(3).toStringAsFixed(1)} ${units.distanceUnit}'),
                         const SizedBox(width: 10),
-                        _buildPresetChip(5.0, '5 km'),
+                        _buildPresetChip(5.0,
+                            '${units.distanceFromKm(5).toStringAsFixed(1)} ${units.distanceUnit}'),
                         const SizedBox(width: 10),
-                        _buildPresetChip(10.0, '10 km'),
+                        _buildPresetChip(10.0,
+                            '${units.distanceFromKm(10).toStringAsFixed(1)} ${units.distanceUnit}'),
                         const SizedBox(width: 10),
                         _buildCustomChip(),
                       ],
                     ),
                     if (_isCustomDistance) ...[
                       const SizedBox(height: 16),
-                      TextField(
-                        controller: _customDistanceController,
-                        keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true),
-                        decoration: InputDecoration(
-                          labelText: 'Custom Distance in Kilometers',
-                          suffixText: 'km',
-                          border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12)),
+                      Form(
+                        key: _distanceFormKey,
+                        child: TextFormField(
+                          controller: _customDistanceController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true),
+                          decoration: InputDecoration(
+                            labelText: 'Custom target distance',
+                            suffixText: units.distanceUnit,
+                            border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                          ),
+                          validator: (value) {
+                            final number = double.tryParse(value?.trim() ?? '');
+                            if (number == null || !number.isFinite) {
+                              return 'Enter a valid distance in ${units.distanceUnit}.';
+                            }
+                            if (number <= 0) {
+                              return 'Distance must be greater than zero ${units.distanceUnit}.';
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Routes are ranked by actual network distance. A maximum distance deviation is not assumed unless the project configures one.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                       ),
                     ],
@@ -229,7 +266,7 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                             style: TextStyle(
                                 fontWeight: FontWeight.w600, fontSize: 15)),
                         subtitle: const Text(
-                            'Prioritizes quieter residential streets and paths',
+                            'Applied only when routing data supports this preference',
                             style: TextStyle(fontSize: 12)),
                         value: _avoidMajorRoads,
                         onChanged: (v) => setState(() => _avoidMajorRoads = v),
@@ -241,7 +278,7 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                             style: TextStyle(
                                 fontWeight: FontWeight.w600, fontSize: 15)),
                         subtitle: const Text(
-                            'Prefers pedestrian-designated paths and footways',
+                            'Sidewalk availability may be unknown in map data',
                             style: TextStyle(fontSize: 12)),
                         value: _preferSidewalks,
                         onChanged: (v) => setState(() => _preferSidewalks = v),
@@ -254,7 +291,7 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                               style: TextStyle(
                                   fontWeight: FontWeight.w600, fontSize: 15)),
                           subtitle: const Text(
-                              'Prioritize designated bicycle paths and wide lanes',
+                              'Cycling infrastructure may be unavailable in map data',
                               style: TextStyle(fontSize: 12)),
                           value: _preferCyclingLanes,
                           onChanged: (v) =>

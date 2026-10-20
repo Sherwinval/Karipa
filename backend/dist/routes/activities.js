@@ -2,20 +2,57 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
-const activitySchema = z.object({
+import { validateAndCalculateActivityCalories, CalorieEstimateValidationError, } from '../services/calorieEstimationService.js';
+import { getWeeklyLeaderboardPeriod } from '../lib/weeklyLeaderboardPeriod.js';
+export const activitySchema = z.object({
     activityType: z.enum(['walking', 'jogging', 'running', 'cycling']),
-    distanceMeters: z.number().nonnegative(),
+    recordingMode: z.enum(['plan_route', 'free_recording']).default('plan_route'),
+    distanceMeters: z.number().finite().nonnegative(),
     durationSeconds: z.number().int().nonnegative(),
-    averagePaceSecondsPerKm: z.number().nonnegative().optional(),
-    averageSpeedKmh: z.number().nonnegative().optional(),
+    activeDurationSeconds: z.number().int().nonnegative().optional(),
+    totalElapsedSeconds: z.number().int().nonnegative().optional(),
+    targetDistanceMeters: z.number().finite().positive().nullable().optional(),
+    averagePaceSecondsPerKm: z.number().finite().nonnegative().nullable().optional(),
+    averageSpeedKmh: z.number().finite().nonnegative().nullable().optional(),
     averageHeartRate: z.number().int().positive().optional(),
     maximumHeartRate: z.number().int().positive().optional(),
-    calories: z.number().nonnegative().optional(),
+    calories: z.number().finite().nonnegative().nullable().optional(),
+    calorieMetCode: z.string().min(1).nullable().optional(),
+    calorieMetValue: z.number().finite().positive().nullable().optional(),
+    calorieWeightKg: z.number().finite().positive().nullable().optional(),
+    calorieDurationMinutes: z.number().finite().positive().nullable().optional(),
+    calorieMethodVersion: z.string().min(1).nullable().optional(),
     startedAt: z.coerce.date(),
     completedAt: z.coerce.date(),
-    routeData: z.unknown().optional(),
+    routeData: z.record(z.unknown()).nullable().optional(),
     gpsData: z.unknown().optional(),
+    idempotencyKey: z.string().min(1).max(100).optional(),
     timePerKm: z.array(z.object({ kilometer: z.number().int().positive(), timeSeconds: z.number().int().nonnegative() })).optional(),
+}).superRefine((data, context) => {
+    if (data.activeDurationSeconds !== undefined &&
+        data.activeDurationSeconds !== data.durationSeconds) {
+        context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['activeDurationSeconds'],
+            message: 'Active duration must match durationSeconds.',
+        });
+    }
+    if (data.recordingMode === 'free_recording') {
+        if (data.targetDistanceMeters != null) {
+            context.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['targetDistanceMeters'],
+                message: 'Free Recording cannot include a target distance.',
+            });
+        }
+        if (data.routeData != null) {
+            context.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['routeData'],
+                message: 'Free Recording cannot include planned route data.',
+            });
+        }
+    }
 });
 function serializeActivity(activity) {
     const distanceKm = Number(activity.distance) / 1000;
@@ -23,14 +60,27 @@ function serializeActivity(activity) {
         id: activity.id.toString(),
         userId: activity.userId.toString(),
         activityType: activity.activityType,
+        recordingMode: activity.recordingMode ?? 'plan_route',
         distanceKm: Number(distanceKm.toFixed(2)),
         durationSeconds: activity.duration,
+        activeDurationSeconds: activity.duration,
+        totalElapsedSeconds: activity.totalElapsedDuration ?? activity.duration,
+        targetDistanceKm: activity.targetDistance === null
+            ? null
+            : Number((Number(activity.targetDistance) / 1000).toFixed(2)),
         averagePaceMinPerKm: activity.pace === null ? null : Number((Number(activity.pace) / 60).toFixed(2)),
         averageSpeedKmh: activity.speed === null ? null : Number(Number(activity.speed).toFixed(2)),
         timePerKm: activity.splits.map((split) => ({ kilometer: split.kilometer, timeSeconds: split.timeSeconds })),
         averageHeartRate: activity.averageHeartRate,
         maximumHeartRate: activity.maximumHeartRate,
         calories: activity.calories === null ? null : Number(activity.calories),
+        calorieMetCode: activity.calorieMetCode,
+        calorieMetValue: activity.calorieMetValue === null ? null : Number(activity.calorieMetValue),
+        calorieWeightKg: activity.calorieWeightKg === null ? null : Number(activity.calorieWeightKg),
+        calorieDurationMinutes: activity.calorieDurationMinutes === null
+            ? null
+            : Number(activity.calorieDurationMinutes),
+        calorieMethodVersion: activity.calorieMethodVersion,
         startedAt: activity.startedAt.toISOString(),
         completedAt: activity.completedAt.toISOString(),
         routeData: activity.routeData,
@@ -47,6 +97,61 @@ activityRouter.get('/', async (req, res) => {
     });
     res.json({ success: true, activities: activities.map(serializeActivity) });
 });
+activityRouter.get('/leaderboard/weekly', async (req, res) => {
+    const { periodStart, periodEnd } = getWeeklyLeaderboardPeriod();
+    try {
+        const entries = await prisma.$queryRaw `
+      WITH weekly_distances AS (
+        SELECT
+          u.id AS user_id,
+          u.name,
+          COALESCE(SUM(a.distance), 0)::double precision AS distance_meters
+        FROM public.tbl_users AS u
+        LEFT JOIN public.activities AS a
+          ON a.user_id = u.id
+          AND a.completed_at >= ${periodStart}
+          AND a.completed_at <= ${periodEnd}
+          AND a.distance > 0
+        WHERE u.is_verified = true
+        GROUP BY u.id, u.name
+        HAVING COALESCE(SUM(a.distance), 0) > 0
+      ),
+      ranked AS (
+        SELECT
+          user_id,
+          name,
+          distance_meters,
+          ROW_NUMBER() OVER (
+            ORDER BY distance_meters DESC, LOWER(name) ASC, user_id ASC
+          ) AS rank
+        FROM weekly_distances
+      )
+      SELECT
+        user_id AS "userId",
+        name,
+        distance_meters AS "distanceMeters",
+        rank
+      FROM ranked
+      WHERE rank <= 50 OR user_id = ${req.userId}
+      ORDER BY rank ASC
+    `;
+        res.json({
+            success: true,
+            periodStart: periodStart.toISOString(),
+            periodEnd: periodEnd.toISOString(),
+            entries: entries.map((entry) => ({
+                rank: Number(entry.rank),
+                name: entry.name,
+                distanceMeters: Number(entry.distanceMeters),
+                isCurrentUser: entry.userId === req.userId,
+            })),
+        });
+    }
+    catch (error) {
+        console.error('Weekly leaderboard load error:', error);
+        res.status(500).json({ success: false, message: 'Failed to load weekly leaderboard' });
+    }
+});
 activityRouter.post('/', async (req, res) => {
     const parsed = activitySchema.safeParse(req.body);
     if (!parsed.success) {
@@ -54,26 +159,84 @@ activityRouter.post('/', async (req, res) => {
         return;
     }
     const data = parsed.data;
-    const activity = await prisma.activity.create({
-        data: {
-            userId: req.userId,
-            activityType: data.activityType,
-            distance: data.distanceMeters,
-            duration: data.durationSeconds,
-            pace: data.averagePaceSecondsPerKm,
-            speed: data.averageSpeedKmh,
-            averageHeartRate: data.averageHeartRate,
-            maximumHeartRate: data.maximumHeartRate,
-            calories: data.calories,
-            startedAt: data.startedAt,
-            completedAt: data.completedAt,
-            routeData: data.routeData,
-            gpsData: data.gpsData,
-            splits: data.timePerKm ? { create: data.timePerKm } : undefined,
-        },
-        include: { splits: { orderBy: { kilometer: 'asc' } } },
-    });
-    res.status(201).json({ success: true, activity: serializeActivity(activity) });
+    let calorieCalculation;
+    try {
+        calorieCalculation = validateAndCalculateActivityCalories(data);
+    }
+    catch (error) {
+        if (error instanceof CalorieEstimateValidationError) {
+            res.status(400).json({ success: false, message: error.message });
+            return;
+        }
+        throw error;
+    }
+    if (data.idempotencyKey) {
+        const existing = await prisma.activity.findUnique({
+            where: {
+                userId_idempotencyKey: {
+                    userId: req.userId,
+                    idempotencyKey: data.idempotencyKey,
+                },
+            },
+            include: { splits: { orderBy: { kilometer: 'asc' } } },
+        });
+        if (existing) {
+            res.status(200).json({ success: true, alreadySaved: true, activity: serializeActivity(existing) });
+            return;
+        }
+    }
+    try {
+        const activity = await prisma.activity.create({
+            data: {
+                userId: req.userId,
+                activityType: data.activityType,
+                recordingMode: data.recordingMode,
+                distance: data.distanceMeters,
+                duration: data.activeDurationSeconds ?? data.durationSeconds,
+                totalElapsedDuration: data.totalElapsedSeconds ?? data.durationSeconds,
+                targetDistance: data.targetDistanceMeters ?? null,
+                pace: data.averagePaceSecondsPerKm,
+                speed: data.averageSpeedKmh,
+                averageHeartRate: data.averageHeartRate,
+                maximumHeartRate: data.maximumHeartRate,
+                calories: calorieCalculation.calories,
+                calorieMetCode: calorieCalculation.calorieMetCode,
+                calorieMetValue: calorieCalculation.calorieMetValue,
+                calorieWeightKg: calorieCalculation.calorieWeightKg,
+                calorieDurationMinutes: calorieCalculation.calorieDurationMinutes,
+                calorieMethodVersion: calorieCalculation.calorieMethodVersion,
+                startedAt: data.startedAt,
+                completedAt: data.completedAt,
+                gpsData: data.gpsData,
+                routeData: data.routeData == null
+                    ? undefined
+                    : data.routeData,
+                idempotencyKey: data.idempotencyKey,
+                splits: data.timePerKm ? { create: data.timePerKm } : undefined,
+            },
+            include: { splits: { orderBy: { kilometer: 'asc' } } },
+        });
+        res.status(201).json({ success: true, activity: serializeActivity(activity) });
+    }
+    catch (error) {
+        if (data.idempotencyKey && typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002') {
+            const existing = await prisma.activity.findUnique({
+                where: {
+                    userId_idempotencyKey: {
+                        userId: req.userId,
+                        idempotencyKey: data.idempotencyKey,
+                    },
+                },
+                include: { splits: { orderBy: { kilometer: 'asc' } } },
+            });
+            if (existing) {
+                res.status(200).json({ success: true, alreadySaved: true, activity: serializeActivity(existing) });
+                return;
+            }
+        }
+        console.error('Activity save error:', error);
+        res.status(500).json({ success: false, message: 'Failed to save activity' });
+    }
 });
 activityRouter.get('/:id', async (req, res) => {
     try {

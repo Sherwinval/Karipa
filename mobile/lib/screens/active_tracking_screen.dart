@@ -1,22 +1,27 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../theme/design_tokens.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import '../models/route_model.dart';
 import '../services/location_service.dart';
 import '../services/api_service.dart';
+import '../services/calorie_estimation_service.dart';
 import '../widgets/route_map_widget.dart';
+import '../services/unit_preferences.dart';
 
 class ActiveTrackingScreen extends StatefulWidget {
-  final PathRoute route;
+  final PathRoute? route;
   final String activity;
+  final String recordingMode;
   final Position? initialPosition;
 
   const ActiveTrackingScreen({
     super.key,
-    required this.route,
+    this.route,
     required this.activity,
+    this.recordingMode = 'plan_route',
     this.initialPosition,
   });
 
@@ -24,34 +29,51 @@ class ActiveTrackingScreen extends StatefulWidget {
   State<ActiveTrackingScreen> createState() => _ActiveTrackingScreenState();
 }
 
-class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
+class _ActiveTrackingScreenState extends State<ActiveTrackingScreen>
+    with WidgetsBindingObserver {
   // Activity state
   bool _isPaused = false;
-  bool _isSaving = false;
+  bool _isFinished = false;
 
   // Real GPS & movement data
   StreamSubscription<RecordedPoint>? _locationSubscription;
+  Timer? _gpsFreshnessTimer;
   final List<RecordedPoint> _recordedGpsPoints = [];
+  RecordedPoint? _previousDistancePoint;
   final List<LatLng> _trackedLatLngs = [];
   LatLng? _currentPosition;
+  DateTime? _lastAcceptedGpsAt;
+  String? _locationMessage;
 
   // Active duration tracking (excluding paused intervals)
   Timer? _timer;
-  int _activeSeconds = 0;
+  final Stopwatch _activeStopwatch = Stopwatch();
+  final Stopwatch _elapsedStopwatch = Stopwatch();
   DateTime _startedAt = DateTime.now();
+  late final String _idempotencyKey;
 
   // Live metrics
   double _traveledDistanceMeters = 0.0;
-  double _caloriesBurned = 0.0;
+  double? _profileWeightKg;
+  bool _profileWeightLoadFailed = false;
 
   double get _traveledDistanceKm => _traveledDistanceMeters / 1000.0;
-
-  double get _remainingDistanceKm {
-    final rem = widget.route.distanceKm - _traveledDistanceKm;
-    return rem > 0 ? rem : 0.0;
-  }
+  int get _activeSeconds => _activeStopwatch.elapsed.inSeconds;
+  int get _totalElapsedSeconds => _elapsedStopwatch.elapsed.inSeconds;
 
   bool get _isCycling => widget.activity.toLowerCase() == 'cycling';
+
+  CalorieEstimateResult get _calorieResult => estimateGrossSessionCalories(
+        activityType: widget.activity,
+        weightKg: _profileWeightKg,
+        distanceMeters: _traveledDistanceMeters,
+        durationSeconds: _activeSeconds,
+        acceptedGpsFixCount: _recordedGpsPoints.length,
+      );
+
+  GrossCalorieEstimate? get _calorieEstimate => _calorieResult.estimate;
+
+  double? get _estimatedGrossCalories => _calorieEstimate?.calories;
 
   // Pace in seconds per km
   double get _paceSecondsPerKm {
@@ -67,14 +89,12 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
   }
 
   String get _formattedPaceOrSpeed {
+    final units = context.read<UnitPreferences>();
     if (_isCycling) {
-      return '${_speedKmh.toStringAsFixed(1)} km/h';
+      return units.formatSpeed(_speedKmh);
     }
-    if (_paceSecondsPerKm == 0.0) return '--:--';
-    final paceSec = _paceSecondsPerKm.round();
-    final m = paceSec ~/ 60;
-    final s = paceSec % 60;
-    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')} /km';
+    if (_paceSecondsPerKm == 0.0) return '--:-- ${units.paceUnit}';
+    return units.formatPace(_paceSecondsPerKm / 60);
   }
 
   String get _formattedActiveTime {
@@ -88,24 +108,17 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
   }
 
   String get _formattedEta {
-    if (_remainingDistanceKm == 0) return 'Complete';
-    if (_isCycling) {
-      if (_speedKmh < 1.0) return '--';
-      final remHours = _remainingDistanceKm / _speedKmh;
-      final remMins = (remHours * 60).round();
-      return '$remMins min';
-    }
-
-    if (_paceSecondsPerKm == 0.0) return '--';
-    final remSec = (_remainingDistanceKm * _paceSecondsPerKm).round();
-    final remMins = remSec ~/ 60;
-    return '$remMins min';
+    return 'Unavailable';
   }
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _startedAt = DateTime.now();
+    _activeStopwatch.start();
+    _elapsedStopwatch.start();
+    _idempotencyKey = 'tracking-${_startedAt.toUtc().microsecondsSinceEpoch}';
 
     if (widget.initialPosition != null) {
       _currentPosition = LatLng(
@@ -115,91 +128,163 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
     }
 
     _startActiveTimer();
-    _startGpsStream();
-  }
-
-  void _startActiveTimer() {
-    _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!_isPaused) {
+    unawaited(_startGpsStream());
+    _loadProfileWeight();
+    _gpsFreshnessTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      final lastUpdate = _lastAcceptedGpsAt;
+      if (_isPaused || lastUpdate == null || !mounted) return;
+      if (DateTime.now().difference(lastUpdate) > const Duration(seconds: 15)) {
         setState(() {
-          _activeSeconds++;
-          _calculateCalories();
+          _locationMessage =
+              'No recent accurate GPS fix. Recorded distance is not increasing until location updates resume.';
         });
       }
     });
   }
 
-  void _calculateCalories() {
-    // MET values: Walking 3.5, Jogging 7.0, Running 9.8, Cycling 7.5
-    double met = 9.8;
-    final act = widget.activity.toLowerCase();
-    if (act == 'walking') {
-      met = 3.5;
-    } else if (act == 'jogging') {
-      met = 7.0;
-    } else if (act == 'cycling') {
-      met = 7.5;
-    }
-
-    const assumedWeightKg = 70.0;
-    final hours = _activeSeconds / 3600.0;
-    _caloriesBurned = met * assumedWeightKg * hours;
+  void _startActiveTimer() {
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
   }
 
-  void _startGpsStream() {
+  Future<void> _loadProfileWeight() async {
+    try {
+      final profile = await ApiService.getProfile();
+      final value = profile['weightKg'];
+      if (!mounted) return;
+      setState(() {
+        _profileWeightKg = value is num ? value.toDouble() : null;
+        _profileWeightLoadFailed = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _profileWeightKg = null;
+        _profileWeightLoadFailed = true;
+      });
+    }
+  }
+
+  Future<void> _startGpsStream() async {
+    if (_isFinished) return;
     _locationSubscription?.cancel();
+    final permissionStatus = await LocationService.checkAndRequestPermission();
+    if (!mounted || _isFinished) return;
+    if (permissionStatus != LocationStatus.ready) {
+      setState(
+          () => _locationMessage = _locationStatusMessage(permissionStatus));
+      return;
+    }
+
     _locationSubscription = LocationService.getTrackingStream().listen(
       (recordedPoint) {
-        if (_isPaused) return;
+        if (_isPaused || _isFinished) return;
 
         setState(() {
           _currentPosition = recordedPoint.toLatLng();
 
-          // Keep the live marker responsive, but exclude imprecise fixes from
-          // the saved track and distance calculations.
-          if (recordedPoint.accuracy > 30.0) return;
+          if (recordedPoint.accuracy > 30.0) {
+            _locationMessage =
+                'GPS accuracy is too low to record this fix. Distance uses accurate GPS fixes only.';
+            return;
+          }
 
-          // Calculate real movement delta from last recorded point
-          if (_recordedGpsPoints.isNotEmpty) {
-            final lastPoint = _recordedGpsPoints.last;
-            final deltaMeters = Geolocator.distanceBetween(
-              lastPoint.latitude,
-              lastPoint.longitude,
-              recordedPoint.latitude,
-              recordedPoint.longitude,
-            );
-
-            // Accumulate actual movement (filter stationary drift < 1.5m)
-            if (deltaMeters >= 1.5) {
-              _traveledDistanceMeters += deltaMeters;
-            }
+          final lastPoint = _previousDistancePoint;
+          if (lastPoint != null) {
+            _traveledDistanceMeters +=
+                GpsSegmentDistance.acceptedMeters(lastPoint, recordedPoint);
           }
 
           _recordedGpsPoints.add(recordedPoint);
+          _previousDistancePoint = recordedPoint;
           _trackedLatLngs.add(recordedPoint.toLatLng());
+          _lastAcceptedGpsAt = recordedPoint.timestamp;
+          _locationMessage = null;
         });
       },
-      onError: (err) {
-        debugPrint('GPS stream error: $err');
+      onError: (Object error) {
+        unawaited(_handleGpsStreamError());
       },
     );
   }
 
+  Future<void> _handleGpsStreamError() async {
+    try {
+      final status = await LocationService.checkPermission();
+      if (!mounted) return;
+      setState(() {
+        _locationMessage = status == LocationStatus.ready
+            ? 'GPS updates stopped. Recorded distance is based only on fixes already received.'
+            : _locationStatusMessage(status);
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _locationMessage =
+            'GPS is unavailable. Recorded distance is based only on fixes already received.';
+      });
+    }
+  }
+
+  String _locationStatusMessage(LocationStatus status) {
+    return switch (status) {
+      LocationStatus.serviceDisabled =>
+        'Location services are off. Turn on GPS to record additional distance.',
+      LocationStatus.permissionDenied =>
+        'Location permission is denied. Allow access in device settings to resume GPS recording.',
+      LocationStatus.permissionDeniedForever =>
+        'Location permission is blocked. Allow access in device settings to resume GPS recording.',
+      LocationStatus.lowAccuracy =>
+        'GPS accuracy is low. Recorded distance will not include inaccurate fixes.',
+      LocationStatus.error =>
+        'GPS is unavailable. Recorded distance will not be replaced by planned route distance.',
+      LocationStatus.ready => 'GPS is ready.',
+    };
+  }
+
   void _togglePause() {
+    if (_isFinished) return;
+    final wasPaused = _isPaused;
+    if (_isPaused) {
+      _activeStopwatch.start();
+    } else {
+      _activeStopwatch.stop();
+    }
     setState(() {
       _isPaused = !_isPaused;
+      _previousDistancePoint = null;
+    });
+    if (wasPaused) unawaited(_startGpsStream());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed ||
+        state == AppLifecycleState.inactive ||
+        _isPaused ||
+        _isFinished) {
+      return;
+    }
+    _activeStopwatch.stop();
+    setState(() {
+      _isPaused = true;
+      _previousDistancePoint = null;
+      _locationMessage =
+          'Recording paused because Karipa left the foreground. Background tracking is not supported; resume manually when the app is open.';
     });
   }
 
   Future<void> _confirmFinishActivity() async {
+    if (_isFinished) return;
     final shouldFinish = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         title: const Text('Finish Activity?'),
         content: const Text(
-          'Are you sure you want to finish and save your workout? Your GPS track and performance metrics will be finalized.',
+          'Finish recording and review your actual GPS metrics? The activity will not be saved until you choose Save.',
         ),
         actions: [
           TextButton(
@@ -219,82 +304,76 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
     );
 
     if (shouldFinish == true) {
-      _finishAndSaveActivity();
+      _finishAndReviewActivity();
     }
   }
 
-  Future<void> _finishAndSaveActivity() async {
+  void _finishAndReviewActivity() {
+    if (_isFinished) return;
+    _activeStopwatch.stop();
+    _elapsedStopwatch.stop();
+    _isPaused = true;
+    _isFinished = true;
     _timer?.cancel();
-    _locationSubscription?.cancel();
-
-    setState(() => _isSaving = true);
-
+    unawaited(_locationSubscription?.cancel());
+    _gpsFreshnessTimer?.cancel();
     final completedAt = DateTime.now();
-
     final gpsDataList = _recordedGpsPoints.map((p) => p.toJson()).toList();
-    late final bool savedLocally;
-
-    try {
-      final result = await ApiService.saveActivity(
-        activityType: widget.activity,
-        distanceMeters: _traveledDistanceMeters,
-        durationSeconds: _activeSeconds,
-        averagePaceSecondsPerKm:
-            _paceSecondsPerKm > 0 ? _paceSecondsPerKm : null,
-        averageSpeedKmh: _speedKmh > 0 ? _speedKmh : null,
-        calories: _caloriesBurned,
-        startedAt: _startedAt,
-        completedAt: completedAt,
-        gpsData: gpsDataList,
-        routeData: widget.route.rawJson,
-      );
-      if (result['success'] != true) {
-        throw Exception(result['message'] ?? 'Failed to save activity');
-      }
-      savedLocally = result['localOnly'] == true;
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _isSaving = false);
-      _startActiveTimer();
-      _startGpsStream();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Could not save activity: ${e.toString().replaceFirst('Exception: ', '')}',
-          ),
-          duration: const Duration(seconds: 6),
-        ),
-      );
-      return;
-    }
-
-    if (!mounted) return;
-
     Navigator.pushReplacementNamed(
       context,
       '/activity_complete',
       arguments: {
         'activityType': widget.activity,
+        'recordingMode': widget.recordingMode,
         'distanceKm': _traveledDistanceKm,
         'durationSeconds': _activeSeconds,
+        'activeDurationSeconds': _activeSeconds,
+        'totalElapsedSeconds': completedAt.difference(_startedAt).inSeconds,
+        'startedAt': _startedAt,
+        'completedAt': completedAt,
         'paceOrSpeed': _formattedPaceOrSpeed,
-        'calories': _caloriesBurned,
+        'averagePaceSecondsPerKm':
+            _isCycling || _paceSecondsPerKm == 0 ? null : _paceSecondsPerKm,
+        'averageSpeedKmh': !_isCycling || _speedKmh == 0 ? null : _speedKmh,
+        'calories': _estimatedGrossCalories,
+        'calorieUnavailableReason': _calorieResult.unavailableReason,
+        'calorieMetCode': _calorieEstimate?.metCode,
+        'calorieMetValue': _calorieEstimate?.metValue,
+        'calorieWeightKg': _calorieEstimate?.weightKg,
+        'calorieDurationMinutes': _calorieEstimate?.durationMinutes,
+        'calorieMethodVersion': _calorieEstimate?.methodVersion,
         'route': widget.route,
+        'idempotencyKey': _idempotencyKey,
+        'gpsData': gpsDataList,
         'gpsPoints': _trackedLatLngs,
-        'savedLocally': savedLocally,
       },
     );
   }
 
+  bool get _isFreeRecording => widget.recordingMode == 'free_recording';
+
+  String _formatSeconds(int seconds) {
+    final hours = seconds ~/ 3600;
+    final minutes = (seconds % 3600) ~/ 60;
+    final remainder = seconds % 60;
+    if (hours > 0) {
+      return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${remainder.toString().padLeft(2, '0')}';
+    }
+    return '${minutes.toString().padLeft(2, '0')}:${remainder.toString().padLeft(2, '0')}';
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     _locationSubscription?.cancel();
+    _gpsFreshnessTimer?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final units = context.watch<UnitPreferences>();
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
@@ -367,7 +446,7 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(20),
                     child: RouteMapWidget(
-                      routePoints: widget.route.coordinates,
+                      routePoints: widget.route?.coordinates ?? const [],
                       trackedPoints: _trackedLatLngs,
                       currentLocation: _currentPosition,
                       interactive: true,
@@ -376,6 +455,35 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
                   ),
                 ),
               ),
+
+              if (_locationMessage != null || _profileWeightKg == null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (_locationMessage != null)
+                        Text(
+                          _locationMessage!,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                      if (_estimatedGrossCalories == null)
+                        Text(
+                          _profileWeightLoadFailed
+                              ? 'Gross calorie estimate unavailable: profile weight could not be loaded. Other activity metrics are unaffected.'
+                              : '${_calorieResult.unavailableReason ?? 'Gross calorie estimate unavailable.'} Other activity metrics are unaffected.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
 
               // Tracking Metrics Dashboard
               Expanded(
@@ -392,7 +500,7 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
                           Column(
                             children: [
                               Text(
-                                'DISTANCE',
+                                'RECORDED DISTANCE',
                                 style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
@@ -408,7 +516,9 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
                                 textBaseline: TextBaseline.alphabetic,
                                 children: [
                                   Text(
-                                    _traveledDistanceKm.toStringAsFixed(2),
+                                    units
+                                        .distanceFromKm(_traveledDistanceKm)
+                                        .toStringAsFixed(2),
                                     style: TextStyle(
                                       fontSize: 38,
                                       fontWeight: FontWeight.bold,
@@ -420,7 +530,7 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
                                   ),
                                   const SizedBox(width: 4),
                                   Text(
-                                    'km',
+                                    units.distanceUnit,
                                     style: TextStyle(
                                       fontSize: 16,
                                       fontWeight: FontWeight.w600,
@@ -461,6 +571,16 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
                                   letterSpacing: -1.0,
                                 ),
                               ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Elapsed ${_formatSeconds(_totalElapsedSeconds)}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
+                                ),
+                              ),
                             ],
                           ),
                         ],
@@ -480,42 +600,49 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
                           const SizedBox(width: 10),
                           Expanded(
                             child: _buildDarkMetricCard(
-                              'CALORIES',
-                              '${_caloriesBurned.toStringAsFixed(0)} kcal',
+                              'EST. GROSS CALORIES · PROVISIONAL',
+                              _estimatedGrossCalories == null
+                                  ? 'Unavailable'
+                                  : '${_estimatedGrossCalories!.toStringAsFixed(0)} kcal',
                               Icons.local_fire_department,
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _buildDarkMetricCard(
-                              'REMAINING',
-                              '${_remainingDistanceKm.toStringAsFixed(2)} km',
-                              Icons.flag_outlined,
+                      if (!_isFreeRecording) ...[
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildDarkMetricCard(
+                                'EST. REMAINING',
+                                'Unavailable',
+                                Icons.flag_outlined,
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: _buildDarkMetricCard(
-                              'EST. FINISH',
-                              _formattedEta,
-                              Icons.timelapse,
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _buildDarkMetricCard(
+                                'EST. FINISH',
+                                _formattedEta,
+                                Icons.timelapse,
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
+                          ],
+                        ),
+                      ],
                       const Spacer(),
+                      Text(
+                        _isFreeRecording
+                            ? 'Free Recording uses GPS observations only; no route or target distance is used. MET category examples are provisional and await adviser review. Keep Karipa open; background tracking and offline synchronization are not supported.'
+                            : 'Remaining route distance and finish time are unavailable because route progress is not map-matched. MET category examples are provisional and await adviser review. Keep Karipa open; background tracking and offline synchronization are not supported.',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                      const SizedBox(height: 8),
 
                       // Control Actions (Pause/Resume & Finish)
-                      if (_isSaving)
-                        Center(
-                          child: CircularProgressIndicator(
-                              color: Theme.of(context).colorScheme.onSurface),
-                        )
-                      else
+                      if (!_isFinished)
                         Row(
                           children: [
                             // Pause / Resume Button
@@ -565,7 +692,7 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen> {
                                 ),
                                 icon: const Icon(Icons.stop, size: 22),
                                 label: const Text(
-                                  'Finish',
+                                  'Finish & Review',
                                   style: TextStyle(
                                       fontSize: 16,
                                       fontWeight: FontWeight.bold),

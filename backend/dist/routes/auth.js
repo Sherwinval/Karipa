@@ -10,12 +10,23 @@ const credentialsSchema = z.object({
     email: z.string().email(),
     password: z.string().min(8)
 });
+export const registrationSchema = credentialsSchema.extend({
+    name: z.string().min(1),
+    heightCm: z.number().finite().positive('Height must be greater than zero').optional(),
+    weightKg: z.number().finite().positive('Weight must be greater than zero').optional(),
+}).strict();
 export const authRouter = Router();
+function getJwtSecret() {
+    const secret = process.env.JWT_SECRET;
+    if (!secret)
+        throw new Error('JWT_SECRET is not configured');
+    return secret;
+}
 const generateOtp = () => {
     return Math.floor(100000 + Math.random() * 900000).toString();
 };
 authRouter.post('/register', async (req, res) => {
-    const parsed = credentialsSchema.extend({ name: z.string().min(1) }).safeParse(req.body);
+    const parsed = registrationSchema.safeParse(req.body);
     if (!parsed.success) {
         res.status(400).json({ success: false, message: 'Invalid registration data' });
         return;
@@ -33,7 +44,14 @@ authRouter.post('/register', async (req, res) => {
             const passwordHash = await bcrypt.hash(parsed.data.password, 12);
             await prisma.user.update({
                 where: { email: parsed.data.email },
-                data: { name: parsed.data.name, passwordHash, otp, otpExpiresAt }
+                data: {
+                    name: parsed.data.name,
+                    passwordHash,
+                    otp,
+                    otpExpiresAt,
+                    ...(parsed.data.heightCm !== undefined && { heightCm: parsed.data.heightCm }),
+                    ...(parsed.data.weightKg !== undefined && { weightKg: parsed.data.weightKg }),
+                }
             });
             await sendOtpEmail(parsed.data.email, otp);
             res.status(200).json({ success: true, message: 'OTP sent to email', userId: existingUser.id.toString() });
@@ -47,7 +65,9 @@ authRouter.post('/register', async (req, res) => {
                 passwordHash,
                 otp,
                 otpExpiresAt,
-                isVerified: false
+                isVerified: false,
+                heightCm: parsed.data.heightCm,
+                weightKg: parsed.data.weightKg,
             }
         });
         await sendOtpEmail(parsed.data.email, otp);
@@ -83,7 +103,7 @@ authRouter.post('/verify-otp', async (req, res) => {
             where: { id: user.id },
             data: { isVerified: true, otp: null, otpExpiresAt: null }
         });
-        const token = jwt.sign({}, process.env.JWT_SECRET || 'secret', { subject: updatedUser.id.toString(), expiresIn: '7d' });
+        const token = jwt.sign({}, getJwtSecret(), { subject: updatedUser.id.toString(), expiresIn: '7d' });
         res.json({ success: true, message: 'Email verified successfully', token, userId: updatedUser.id.toString(), name: updatedUser.name });
     }
     catch (error) {
@@ -143,7 +163,7 @@ authRouter.post('/login', async (req, res) => {
             res.status(403).json({ success: false, message: 'Please verify your email to login', needsVerification: true });
             return;
         }
-        const token = jwt.sign({}, process.env.JWT_SECRET || 'secret', { subject: user.id.toString(), expiresIn: '7d' });
+        const token = jwt.sign({}, getJwtSecret(), { subject: user.id.toString(), expiresIn: '7d' });
         res.json({ success: true, token, userId: user.id.toString(), name: user.name });
     }
     catch (error) {
@@ -173,5 +193,64 @@ authRouter.get('/me', requireAuth, async (req, res) => {
     }
     catch (error) {
         res.status(500).json({ success: false, message: 'Internal server error' });
+    }
+});
+export const profileUpdateSchema = z.object({
+    heightCm: z.number().finite().positive('Height must be greater than zero').nullable().optional(),
+    weightKg: z.number().finite().positive('Weight must be greater than zero').nullable().optional(),
+}).strict().refine((profile) => profile.heightCm !== undefined || profile.weightKg !== undefined, { message: 'Provide height, weight, or both' });
+authRouter.get('/profile', requireAuth, async (req, res) => {
+    try {
+        const user = await prisma.user.findUnique({
+            where: { id: req.userId },
+            select: { heightCm: true, weightKg: true },
+        });
+        if (!user) {
+            res.status(404).json({ success: false, message: 'User not found' });
+            return;
+        }
+        res.json({
+            success: true,
+            profile: {
+                heightCm: user.heightCm === null ? null : Number(user.heightCm),
+                weightKg: user.weightKg === null ? null : Number(user.weightKg),
+            },
+        });
+    }
+    catch (error) {
+        console.error('Profile load error:', error);
+        res.status(500).json({ success: false, message: 'Failed to load profile measurements' });
+    }
+});
+authRouter.patch('/profile', requireAuth, async (req, res) => {
+    const parsed = profileUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+        res.status(400).json({
+            success: false,
+            message: 'Enter a positive numeric height in cm or weight in kg, or clear a value.',
+            errors: parsed.error.flatten(),
+        });
+        return;
+    }
+    try {
+        const user = await prisma.user.update({
+            where: { id: req.userId },
+            data: {
+                ...(parsed.data.heightCm !== undefined && { heightCm: parsed.data.heightCm }),
+                ...(parsed.data.weightKg !== undefined && { weightKg: parsed.data.weightKg }),
+            },
+            select: { heightCm: true, weightKg: true },
+        });
+        res.json({
+            success: true,
+            profile: {
+                heightCm: user.heightCm === null ? null : Number(user.heightCm),
+                weightKg: user.weightKg === null ? null : Number(user.weightKg),
+            },
+        });
+    }
+    catch (error) {
+        console.error('Profile update error:', error);
+        res.status(500).json({ success: false, message: 'Failed to save profile measurements' });
     }
 });

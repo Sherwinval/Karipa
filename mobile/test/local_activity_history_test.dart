@@ -17,14 +17,26 @@ void main() {
       durationSeconds: 1200,
       averagePaceSecondsPerKm: 960,
       calories: 80,
+      idempotencyKey: 'guest-walk-001',
       startedAt: startedAt,
       completedAt: completedAt,
       gpsData: const [],
-      routeData: const {},
     );
 
     expect(saveResult['success'], isTrue);
     expect(saveResult['localOnly'], isTrue);
+    final retryResult = await ApiService.saveActivity(
+      activityType: 'walking',
+      distanceMeters: 1250,
+      durationSeconds: 1200,
+      averagePaceSecondsPerKm: 960,
+      calories: 80,
+      idempotencyKey: 'guest-walk-001',
+      startedAt: startedAt,
+      completedAt: completedAt,
+      gpsData: const [],
+    );
+    expect(retryResult['success'], isTrue);
 
     final activities = await ApiService.getActivities();
     expect(activities, hasLength(1));

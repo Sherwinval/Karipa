@@ -3,6 +3,8 @@ import '../theme/design_tokens.dart';
 import 'package:intl/intl.dart';
 import '../services/api_service.dart';
 import '../models/activity_model.dart';
+import 'package:provider/provider.dart';
+import '../services/unit_preferences.dart';
 
 class ActivityHistoryScreen extends StatefulWidget {
   const ActivityHistoryScreen({super.key});
@@ -58,6 +60,7 @@ class _ActivityHistoryScreenState extends State<ActivityHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final units = context.watch<UnitPreferences>();
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: AppBar(
@@ -107,7 +110,8 @@ class _ActivityHistoryScreenState extends State<ActivityHistoryScreen> {
                             children: [
                               Icon(Icons.history_toggle_off,
                                   size: 64,
-                              color: Theme.of(context).colorScheme.onSurface),
+                                  color:
+                                      Theme.of(context).colorScheme.onSurface),
                               const SizedBox(height: 16),
                               const Text(
                                 'No Activities Found',
@@ -147,7 +151,8 @@ class _ActivityHistoryScreenState extends State<ActivityHistoryScreen> {
                         itemCount: _activities.length,
                         itemBuilder: (context, index) {
                           final item = _activities[index];
-                          final dateFormatted = DateFormat('MMMM d, yyyy • h:mm a')
+                          final dateFormatted =
+                              DateFormat('MMMM d, yyyy • h:mm a')
                                   .format(item.startedAt);
 
                           return Card(
@@ -181,7 +186,8 @@ class _ActivityHistoryScreenState extends State<ActivityHistoryScreen> {
                                             color: Theme.of(context)
                                                 .colorScheme
                                                 .surfaceContainer,
-                                        borderRadius: BorderRadius.circular(12),
+                                            borderRadius:
+                                                BorderRadius.circular(12),
                                           ),
                                           child: Icon(
                                             _getActivityIcon(item.activityType),
@@ -209,6 +215,17 @@ class _ActivityHistoryScreenState extends State<ActivityHistoryScreen> {
                                               ),
                                               const SizedBox(height: 2),
                                               Text(
+                                                item.recordingMode ==
+                                                        'free_recording'
+                                                    ? 'Free Recording'
+                                                    : 'Plan a Route',
+                                                style: TextStyle(
+                                                    color: Theme.of(context)
+                                                        .colorScheme
+                                                        .onSurfaceVariant,
+                                                    fontSize: 12),
+                                              ),
+                                              Text(
                                                 dateFormatted,
                                                 style: TextStyle(
                                                     color: Theme.of(context)
@@ -232,10 +249,12 @@ class _ActivityHistoryScreenState extends State<ActivityHistoryScreen> {
                                       mainAxisAlignment:
                                           MainAxisAlignment.spaceBetween,
                                       children: [
-                                        _buildMetricCol('DISTANCE',
-                                            '${item.distanceKm.toStringAsFixed(2)} km'),
                                         _buildMetricCol(
-                                            'DURATION', item.formattedDuration),
+                                            'DISTANCE',
+                                            units.formatDistance(
+                                                item.distanceKm)),
+                                        _buildMetricCol(
+                                            'ACTIVE', item.formattedDuration),
                                         _buildMetricCol(
                                           item.activityType.toLowerCase() ==
                                                   'cycling'
@@ -243,12 +262,29 @@ class _ActivityHistoryScreenState extends State<ActivityHistoryScreen> {
                                               : 'PACE',
                                           item.activityType.toLowerCase() ==
                                                   'cycling'
-                                              ? '${(item.averageSpeedKmh ?? 0).toStringAsFixed(1)} km/h'
-                                              : item.formattedPace,
+                                              ? units.formatSpeed(
+                                                  item.averageSpeedKmh ?? 0)
+                                              : units.formatPace(
+                                                  item.averagePaceMinPerKm ??
+                                                      0),
                                         ),
-                                        _buildMetricCol('CALORIES',
-                                            '${item.calories?.toStringAsFixed(0) ?? '0'} kcal'),
+                                        _buildMetricCol(
+                                          'EST. GROSS CALORIES · PROVISIONAL',
+                                          item.calories == null
+                                              ? 'Unavailable'
+                                              : '${item.calories!.toStringAsFixed(0)} kcal',
+                                        ),
                                       ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'Total elapsed: ${_formatDuration(item.totalElapsedSeconds)}',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant,
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -285,5 +321,15 @@ class _ActivityHistoryScreenState extends State<ActivityHistoryScreen> {
         ),
       ],
     );
+  }
+
+  String _formatDuration(int seconds) {
+    final hours = seconds ~/ 3600;
+    final minutes = (seconds % 3600) ~/ 60;
+    final remainder = seconds % 60;
+    if (hours > 0) {
+      return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${remainder.toString().padLeft(2, '0')}';
+    }
+    return '${minutes.toString().padLeft(2, '0')}:${remainder.toString().padLeft(2, '0')}';
   }
 }

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:karipa/main.dart';
 import 'package:karipa/services/auth_service.dart';
 import 'package:karipa/services/theme_service.dart';
+import 'package:karipa/services/unit_preferences.dart';
 import 'package:karipa/widgets/karipa_logo.dart';
 
 void main() {
@@ -13,6 +14,7 @@ void main() {
         providers: [
           ChangeNotifierProvider(create: (_) => AuthService()),
           ChangeNotifierProvider(create: (_) => ThemeService()),
+          ChangeNotifierProvider(create: (_) => UnitPreferences()),
         ],
         child: const KaripaApp(),
       ),

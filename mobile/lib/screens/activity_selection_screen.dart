@@ -60,7 +60,7 @@ class _ActivitySelectionScreenState extends State<ActivitySelectionScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'What workout are you planning today?',
+                'Choose an activity and how you want to record it.',
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
@@ -70,7 +70,7 @@ class _ActivitySelectionScreenState extends State<ActivitySelectionScreen> {
               ),
               const SizedBox(height: 6),
               Text(
-                'Karipa will tailor route characteristics and speed profiles to your selected activity.',
+                'Plan a route before recording, or start Free Recording without a target distance or route.',
                 style: TextStyle(
                     fontSize: 14,
                     color: Theme.of(context).colorScheme.onSurfaceVariant),
@@ -200,6 +200,31 @@ class _ActivitySelectionScreenState extends State<ActivitySelectionScreen> {
                 ),
                 child: const Text(
                   'Continue to Route Planning',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton(
+                onPressed: () {
+                  Navigator.pushNamed(
+                    context,
+                    '/active_tracking',
+                    arguments: {
+                      'activity': _selectedActivity,
+                      'recordingMode': 'free_recording',
+                    },
+                  );
+                },
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(54),
+                  foregroundColor: Theme.of(context).colorScheme.onSurface,
+                  side:
+                      BorderSide(color: Theme.of(context).colorScheme.outline),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                ),
+                child: const Text(
+                  'Start Free Recording',
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
               ),

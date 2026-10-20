@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
 import '../services/api_service.dart';
+import '../services/unit_preferences.dart';
 import '../models/activity_model.dart';
 import 'package:intl/intl.dart';
 import '../widgets/home_dashboard.dart';
@@ -14,13 +15,14 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  int _currentIndex = 0;
+  final int _currentIndex = 0;
   bool _isLoading = true;
   List<ActivityModel> _activities = [];
 
   double _totalDistanceKm = 0.0;
   int _totalDurationSeconds = 0;
   double _totalCalories = 0.0;
+  bool _hasCalorieEstimates = false;
 
   @override
   void initState() {
@@ -35,11 +37,15 @@ class _HomeScreenState extends State<HomeScreen> {
       double dist = 0;
       int dur = 0;
       double cal = 0;
+      bool hasCalorieEstimates = false;
 
       for (var a in list) {
         dist += a.distanceKm;
         dur += a.durationSeconds;
-        cal += (a.calories ?? 0.0);
+        if (a.calories != null) {
+          cal += a.calories!;
+          hasCalorieEstimates = true;
+        }
       }
 
       if (mounted) {
@@ -48,6 +54,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _totalDistanceKm = dist;
           _totalDurationSeconds = dur;
           _totalCalories = cal;
+          _hasCalorieEstimates = hasCalorieEstimates;
           _isLoading = false;
         });
       }
@@ -59,9 +66,12 @@ class _HomeScreenState extends State<HomeScreen> {
   void _onNavigationTapped(int index) {
     if (index == _currentIndex) return;
     if (index == 1) {
-      Navigator.pushNamed(context, '/activity_history')
+      Navigator.pushNamed(context, '/leaderboard')
           .then((_) => _loadUserDashboard());
     } else if (index == 2) {
+      Navigator.pushNamed(context, '/activity_history')
+          .then((_) => _loadUserDashboard());
+    } else if (index == 3) {
       Navigator.pushNamed(context, '/profile')
           .then((_) => _loadUserDashboard());
     }
@@ -90,15 +100,18 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final auth = Provider.of<AuthService>(context);
+    final units = context.watch<UnitPreferences>();
     final userName = auth.name ?? 'Athlete';
 
     return HomeDashboard(
       userName: userName,
       isLoading: _isLoading,
-      distance: _totalDistanceKm.toStringAsFixed(1),
+      distance: units.distanceFromKm(_totalDistanceKm).toStringAsFixed(1),
       activityCount: _activities.length.toString(),
       activeTime: _formatTotalTime(_totalDurationSeconds),
-      calories: _totalCalories.toStringAsFixed(0),
+      calories: _hasCalorieEstimates
+          ? _totalCalories.toStringAsFixed(0)
+          : 'Unavailable',
       recentActivities:
           _activities.take(3).map(_buildRecentActivityCard).toList(),
       currentIndex: _currentIndex,
@@ -118,9 +131,11 @@ class _HomeScreenState extends State<HomeScreen> {
       activity: activity.activityType.toUpperCase(),
       icon: _getActivityIcon(activity.activityType),
       date: DateFormat('d MMM yyyy').format(activity.startedAt),
-      distance: activity.distanceKm.toStringAsFixed(2),
+      distance: Provider.of<UnitPreferences>(context, listen: false)
+          .distanceFromKm(activity.distanceKm)
+          .toStringAsFixed(2),
       duration: activity.formattedDuration,
-      calories: activity.calories?.toStringAsFixed(0) ?? '0',
+      calories: activity.calories?.toStringAsFixed(0) ?? 'Unavailable',
       onTap: () {
         Navigator.pushNamed(context, '/activity_details',
             arguments: {'activity': activity});

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../theme/design_tokens.dart';
 import 'package:geolocator/geolocator.dart';
 import '../models/route_model.dart';
+import '../services/unit_preferences.dart';
 
 class ReadyToStartScreen extends StatelessWidget {
   final PathRoute route;
@@ -17,6 +19,7 @@ class ReadyToStartScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final units = context.watch<UnitPreferences>();
     return Scaffold(
       backgroundColor:
           Theme.of(context).colorScheme.surface, // Premium dark layout
@@ -119,7 +122,7 @@ class ReadyToStartScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          '${route.distanceKm.toStringAsFixed(2)} km',
+                          units.formatDistance(route.distanceKm),
                           style: TextStyle(
                               fontSize: 22,
                               fontWeight: FontWeight.bold,

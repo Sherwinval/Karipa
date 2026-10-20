@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import cors from 'cors';
@@ -16,9 +16,32 @@ app.use(express.json());
 app.use('/api/auth', authRouter);
 app.use('/api/activities', activityRouter);
 app.use('/api/routes', routeRouter);
+describe('Weekly leaderboard access', () => {
+    it('requires authentication before returning leaderboard data', async () => {
+        const response = await request(app).get('/api/activities/leaderboard/weekly');
+        expect(response.status).toBe(401);
+    });
+});
+const originalGoogleRoutesApiKey = process.env.GOOGLE_MAPS_ROUTES_API_KEY;
+afterEach(() => {
+    vi.unstubAllGlobals();
+    if (originalGoogleRoutesApiKey === undefined) {
+        delete process.env.GOOGLE_MAPS_ROUTES_API_KEY;
+    }
+    else {
+        process.env.GOOGLE_MAPS_ROUTES_API_KEY = originalGoogleRoutesApiKey;
+    }
+});
 describe('Routing Service & AI Recommendation', () => {
-    it('generates real candidate routes for given coordinates and target distance', async () => {
-        // Coordinates in Manila
+    it('generates routes through the Google Routes API for the requested coordinates', async () => {
+        process.env.GOOGLE_MAPS_ROUTES_API_KEY = 'test-routes-key';
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+            routes: [{
+                    distanceMeters: 3000,
+                    duration: '600s',
+                    polyline: { encodedPolyline: '??gEgE' },
+                }],
+        }), { status: 200 })));
         const startLocation = { latitude: 14.5995, longitude: 120.9842 };
         const candidates = await generateCandidateRoutes('running', 3.0, { preferLoop: true }, startLocation);
         expect(candidates).toBeDefined();
@@ -70,9 +93,11 @@ describe('Routing Service & AI Recommendation', () => {
         ];
         const ranked = await rankCandidateRoutes('running', 5.0, { preferLoop: true, avoidMajorRoads: true }, mockCandidates);
         expect(ranked).toBeDefined();
-        expect(ranked.length).toBe(1);
+        expect(ranked.length).toBe(2);
         expect(ranked[0].id).toBe('route-1');
         expect(ranked[0].isTopRecommendation).toBe(true);
+        expect(ranked[0].absoluteDistanceDeviationKm).toBeCloseTo(0.1);
+        expect(ranked[0].percentageDistanceDeviation).toBeCloseTo(2);
         expect(ranked[0].score).toBeGreaterThan(ranked[1].score);
         expect(ranked[0].suitability).toBeDefined();
     });

@@ -3,15 +3,157 @@ import '../theme/design_tokens.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
 import '../services/theme_service.dart';
+import '../services/api_service.dart';
+import '../services/unit_preferences.dart';
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  final _heightController = TextEditingController();
+  final _weightController = TextEditingController();
+  final _profileFormKey = GlobalKey<FormState>();
+  bool _profileLoadStarted = false;
+  bool _profileLoading = false;
+  bool _profileLoaded = false;
+  bool _profileSaving = false;
+  bool _isEditingMeasurements = false;
+  String _savedHeight = '';
+  String _savedWeight = '';
+  double? _draftHeightCm;
+  double? _draftWeightKg;
+  UnitSystem? _renderedUnitSystem;
+  String? _profileError;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_profileLoadStarted &&
+        Provider.of<AuthService>(context).isAuthenticated) {
+      _profileLoadStarted = true;
+      _loadMeasurements();
+    }
+  }
+
+  Future<void> _loadMeasurements() async {
+    setState(() => _profileLoading = true);
+    try {
+      final profile = await ApiService.getProfile();
+      if (!mounted) return;
+      _savedHeight = profile['heightCm']?.toString() ?? '';
+      _savedWeight = profile['weightKg']?.toString() ?? '';
+      _draftHeightCm = double.tryParse(_savedHeight);
+      _draftWeightKg = double.tryParse(_savedWeight);
+      setState(() {
+        _profileError = null;
+        _profileLoaded = true;
+        _profileLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _profileError = error.toString().replaceFirst('Exception: ', '');
+        _profileLoaded = false;
+        _profileLoading = false;
+      });
+    }
+  }
+
+  Future<void> _saveMeasurements() async {
+    if (!_profileFormKey.currentState!.validate()) return;
+    setState(() {
+      _profileSaving = true;
+      _profileError = null;
+    });
+    try {
+      final saved = await ApiService.updateProfile(
+        heightCm: _draftHeightCm,
+        weightKg: _draftWeightKg,
+      );
+      if (!mounted) return;
+      _savedHeight = saved['heightCm']?.toString() ?? '';
+      _savedWeight = saved['weightKg']?.toString() ?? '';
+      _draftHeightCm = double.tryParse(_savedHeight);
+      _draftWeightKg = double.tryParse(_savedWeight);
+      setState(() {
+        _profileSaving = false;
+        _isEditingMeasurements = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _profileSaving = false;
+        _profileError = error.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  Future<void> _clearMeasurements() async {
+    setState(() {
+      _profileSaving = true;
+      _profileError = null;
+    });
+    try {
+      await ApiService.updateProfile(heightCm: null, weightKg: null);
+      if (!mounted) return;
+      _savedHeight = '';
+      _savedWeight = '';
+      _draftHeightCm = null;
+      _draftWeightKg = null;
+      _heightController.clear();
+      _weightController.clear();
+      setState(() {
+        _profileSaving = false;
+        _isEditingMeasurements = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _profileSaving = false;
+        _profileError = error.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  Future<void> _changeUnitSystem(UnitSystem system) async {
+    try {
+      await context.read<UnitPreferences>().setSystem(system);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not save measurement units: $error')),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _heightController.dispose();
+    _weightController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final authService = Provider.of<AuthService>(context);
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final units = context.watch<UnitPreferences>();
+    if (_renderedUnitSystem != units.system) {
+      _heightController.text = _draftHeightCm == null
+          ? ''
+          : units
+              .heightFromCm(_draftHeightCm!)
+              .toStringAsFixed(units.isImperial ? 2 : 1);
+      _weightController.text = _draftWeightKg == null
+          ? ''
+          : units.weightFromKg(_draftWeightKg!).toStringAsFixed(1);
+      _renderedUnitSystem = units.system;
+    }
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -139,6 +281,11 @@ class ProfileScreen extends StatelessWidget {
                 ],
               ),
             ),
+            const SizedBox(height: 20),
+
+            _buildMeasurementsSection(authService, theme, colorScheme, units),
+            const SizedBox(height: 20),
+            _buildUnitSystemSection(units, theme, colorScheme),
             const SizedBox(height: 20),
 
             // Actions List
@@ -270,5 +417,259 @@ class ProfileScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Widget _buildUnitSystemSection(
+    UnitPreferences units,
+    ThemeData theme,
+    ColorScheme colorScheme,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: theme.cardTheme.color ?? colorScheme.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.1)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Measurement Units',
+              style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: colorScheme.onSurface)),
+          const SizedBox(height: 4),
+          Text(
+            'Choose how distances and profile measurements are displayed. Saved values remain unchanged.',
+            style: TextStyle(fontSize: 13, color: colorScheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 8),
+          SegmentedButton<UnitSystem>(
+            segments: const [
+              ButtonSegment(
+                  value: UnitSystem.metric,
+                  label: Text('Metric'),
+                  icon: Icon(Icons.straighten)),
+              ButtonSegment(
+                  value: UnitSystem.imperial,
+                  label: Text('Imperial'),
+                  icon: Icon(Icons.swap_horiz)),
+            ],
+            selected: {units.system},
+            onSelectionChanged: (selection) =>
+                _changeUnitSystem(selection.first),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            units.isImperial
+                ? 'Distance: miles • Height: decimal feet • Weight: pounds'
+                : 'Distance: kilometers • Height: centimeters • Weight: kilograms',
+            style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMeasurementsSection(
+    AuthService authService,
+    ThemeData theme,
+    ColorScheme colorScheme,
+    UnitPreferences units,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: theme.cardTheme.color ?? colorScheme.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.1)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Optional Measurements',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: colorScheme.onSurface,
+              )),
+          const SizedBox(height: 8),
+          Text(
+            'These measurements are optional. Weight supports provisional gross session calorie estimates using the published MET examples; adviser review is pending. Height is not used in the current calorie equation. Route planning and activity tracking work without them.',
+            style: TextStyle(fontSize: 13, color: colorScheme.onSurfaceVariant),
+          ),
+          if (!authService.isAuthenticated) ...[
+            const SizedBox(height: 12),
+            Text(
+              'Sign in to save measurements to your account. You can still plan routes and track activities without them.',
+              style:
+                  TextStyle(fontSize: 13, color: colorScheme.onSurfaceVariant),
+            ),
+          ] else if (_profileLoading) ...[
+            const SizedBox(height: 16),
+            const Center(child: CircularProgressIndicator()),
+          ] else if (!_profileLoaded) ...[
+            if (_profileError != null) ...[
+              const SizedBox(height: 10),
+              Text(_profileError!,
+                  style: TextStyle(color: colorScheme.error, fontSize: 13)),
+            ],
+            const SizedBox(height: 8),
+            OutlinedButton(
+              onPressed: _profileLoading ? null : _loadMeasurements,
+              child: const Text('Retry loading measurements'),
+            ),
+          ] else ...[
+            const SizedBox(height: 16),
+            Form(
+              key: _profileFormKey,
+              child: Column(
+                children: [
+                  TextFormField(
+                    controller: _heightController,
+                    enabled: _isEditingMeasurements && !_profileSaving,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    onChanged: (value) {
+                      final parsed = double.tryParse(value.trim());
+                      _draftHeightCm = parsed == null
+                          ? null
+                          : context
+                              .read<UnitPreferences>()
+                              .heightToCm(parsed);
+                    },
+                    decoration: InputDecoration(
+                      labelText: 'Height (${units.heightUnit})',
+                      suffixText: units.heightUnit,
+                      border: const OutlineInputBorder(),
+                    ),
+                    validator: (value) => _validateMeasurement(
+                      value,
+                      unit: units.heightUnit,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _weightController,
+                    enabled: _isEditingMeasurements && !_profileSaving,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    onChanged: (value) {
+                      final parsed = double.tryParse(value.trim());
+                      _draftWeightKg = parsed == null
+                          ? null
+                          : context
+                              .read<UnitPreferences>()
+                              .weightToKg(parsed);
+                    },
+                    decoration: InputDecoration(
+                      labelText: 'Weight (${units.weightUnit})',
+                      suffixText: units.weightUnit,
+                      border: const OutlineInputBorder(),
+                    ),
+                    validator: (value) => _validateMeasurement(
+                      value,
+                      unit: units.weightUnit,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (_profileError != null) ...[
+              const SizedBox(height: 10),
+              Text(_profileError!,
+                  style: TextStyle(color: colorScheme.error, fontSize: 13)),
+            ],
+            const SizedBox(height: 12),
+            if (_isEditingMeasurements)
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _profileSaving
+                          ? null
+                          : () {
+                              _draftHeightCm = double.tryParse(_savedHeight);
+                              _draftWeightKg = double.tryParse(_savedWeight);
+                              final units = context.read<UnitPreferences>();
+                              _heightController.text = _draftHeightCm == null
+                                  ? ''
+                                  : units
+                                      .heightFromCm(_draftHeightCm!)
+                                      .toStringAsFixed(
+                                          units.isImperial ? 2 : 1);
+                              _weightController.text = _draftWeightKg == null
+                                  ? ''
+                                  : units
+                                      .weightFromKg(_draftWeightKg!)
+                                      .toStringAsFixed(1);
+                              setState(() {
+                                _profileError = null;
+                                _isEditingMeasurements = false;
+                              });
+                            },
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _profileSaving ? null : _saveMeasurements,
+                      child: _profileSaving
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('Save'),
+                    ),
+                  ),
+                ],
+              )
+            else
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _profileSaving
+                          ? null
+                          : () => setState(() {
+                                _profileError = null;
+                                _isEditingMeasurements = true;
+                              }),
+                      child: const Text('Edit'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _profileSaving ? null : _clearMeasurements,
+                      child: const Text('Clear values'),
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String? _validateMeasurement(
+    String? value, {
+    required String unit,
+  }) {
+    if (!_isEditingMeasurements || value == null || value.trim().isEmpty) {
+      return null;
+    }
+    final measurement = double.tryParse(value.trim());
+    if (measurement == null || !measurement.isFinite) {
+      return 'Enter a valid number in $unit.';
+    }
+    if (measurement <= 0) {
+      return 'Enter a positive value in $unit.';
+    }
+    return null;
   }
 }

@@ -84,12 +84,24 @@ class AuthService extends ChangeNotifier {
     }
   }
 
-  Future<Map<String, dynamic>> register(String name, String email, String password) async {
+  Future<Map<String, dynamic>> register(
+    String name,
+    String email,
+    String password, {
+    double? heightCm,
+    double? weightKg,
+  }) async {
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/register'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'name': name, 'email': email, 'password': password}),
+        body: jsonEncode({
+          'name': name,
+          'email': email,
+          'password': password,
+          if (heightCm != null) 'heightCm': heightCm,
+          if (weightKg != null) 'weightKg': weightKg,
+        }),
       );
 
       final data = jsonDecode(response.body);

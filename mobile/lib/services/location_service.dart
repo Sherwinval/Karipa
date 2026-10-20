@@ -27,14 +27,45 @@ class RecordedPoint {
   LatLng toLatLng() => LatLng(latitude, longitude);
 
   Map<String, dynamic> toJson() => {
-    'latitude': latitude,
-    'longitude': longitude,
-    'timestamp': timestamp.toIso8601String(),
-    'accuracy': accuracy,
-  };
+        'latitude': latitude,
+        'longitude': longitude,
+        'timestamp': timestamp.toIso8601String(),
+        'accuracy': accuracy,
+      };
+}
+
+class GpsSegmentDistance {
+  static double acceptedMeters(RecordedPoint previous, RecordedPoint current) {
+    final elapsed = current.timestamp.difference(previous.timestamp);
+    if (elapsed <= Duration.zero || elapsed > const Duration(seconds: 30)) {
+      return 0;
+    }
+    final meters = Geolocator.distanceBetween(
+      previous.latitude,
+      previous.longitude,
+      current.latitude,
+      current.longitude,
+    );
+    return meters >= 1.5 ? meters : 0;
+  }
 }
 
 class LocationService {
+  static Future<LocationStatus> checkPermission() async {
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      return LocationStatus.serviceDisabled;
+    }
+    final permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      return LocationStatus.permissionDenied;
+    }
+    if (permission == LocationPermission.deniedForever) {
+      return LocationStatus.permissionDeniedForever;
+    }
+    return LocationStatus.ready;
+  }
+
   static Future<LocationStatus> checkAndRequestPermission() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
@@ -70,9 +101,8 @@ class LocationService {
           timeLimit: Duration(seconds: 10),
         ),
       );
-    } catch (e) {
-      // Fallback to last known position if current times out
-      return await Geolocator.getLastKnownPosition();
+    } catch (_) {
+      return null;
     }
   }
 
@@ -87,30 +117,36 @@ class LocationService {
 
     return Geolocator.getPositionStream(locationSettings: locationSettings)
         .where((pos) {
-          // Filter out unrealistic GPS teleport jumps
-          if (previousPos != null) {
-            final distance = Geolocator.distanceBetween(
-              previousPos!.latitude,
-              previousPos!.longitude,
-              pos.latitude,
-              pos.longitude,
-            );
-            final timeSeconds = (pos.timestamp.difference(previousPos!.timestamp).inMilliseconds) / 1000.0;
-            if (timeSeconds > 0) {
-              final speedMs = distance / timeSeconds;
-              // If speed > 35 m/s (~126 km/h) for human fitness, ignore jump noise
-              if (speedMs > 35.0) return false;
-            }
-          }
+      final now = DateTime.now();
+      final age = now.difference(pos.timestamp);
+      if (age.isNegative || age > const Duration(seconds: 15)) {
+        return false;
+      }
 
-          previousPos = pos;
-          return true;
-        })
-        .map((pos) => RecordedPoint(
-          latitude: pos.latitude,
-          longitude: pos.longitude,
-          timestamp: pos.timestamp,
-          accuracy: pos.accuracy,
-        ));
+      // Filter out unrealistic GPS teleport jumps
+      if (previousPos != null) {
+        final distance = Geolocator.distanceBetween(
+          previousPos!.latitude,
+          previousPos!.longitude,
+          pos.latitude,
+          pos.longitude,
+        );
+        final timeSeconds =
+            (pos.timestamp.difference(previousPos!.timestamp).inMilliseconds) /
+                1000.0;
+        if (timeSeconds <= 0) return false;
+        final speedMs = distance / timeSeconds;
+        // Reject implausible jumps rather than treating them as traveled distance.
+        if (speedMs > 35.0) return false;
+      }
+
+      previousPos = pos;
+      return true;
+    }).map((pos) => RecordedPoint(
+              latitude: pos.latitude,
+              longitude: pos.longitude,
+              timestamp: pos.timestamp,
+              accuracy: pos.accuracy,
+            ));
   }
 }

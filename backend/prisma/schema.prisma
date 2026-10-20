@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
@@ -16,31 +16,43 @@ model User {
   isVerified   Boolean    @default(false) @map("is_verified")
   otp          String?
   otpExpiresAt DateTime?  @map("otp_expires_at")
+  heightCm     Decimal?   @map("height_cm") @db.Decimal(5, 2)
+  weightKg     Decimal?   @map("weight_kg") @db.Decimal(6, 2)
   createdAt    DateTime   @default(now()) @map("created_at")
   activities   Activity[]
   routes       Route[]
 
-  @@map("users")
+  @@map("tbl_users")
 }
 
 model Activity {
-  id           BigInt   @id @default(autoincrement())
-  userId       BigInt   @map("user_id")
-  activityType String   @map("activity_type")
-  distance     Decimal  @db.Decimal(10, 2)
-  duration     Int
-  pace         Decimal? @db.Decimal(10, 2)
-  speed        Decimal? @db.Decimal(10, 2)
-  averageHeartRate Int?     @map("average_heart_rate")
-  maximumHeartRate Int?     @map("maximum_heart_rate")
-  calories     Decimal? @db.Decimal(10, 2)
-  startedAt    DateTime @map("started_at")
-  completedAt  DateTime @map("completed_at")
-  routeData    Json?    @map("route_data")
-  gpsData      Json?    @map("gps_data")
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  splits       ActivitySplit[]
+  id                     BigInt          @id @default(autoincrement())
+  userId                 BigInt          @map("user_id")
+  activityType           String          @map("activity_type")
+  recordingMode          String          @default("plan_route") @map("recording_mode")
+  distance               Decimal         @db.Decimal(10, 2)
+  duration               Int
+  totalElapsedDuration   Int?            @map("total_elapsed_duration")
+  targetDistance         Decimal?        @map("target_distance") @db.Decimal(10, 2)
+  pace                   Decimal?        @db.Decimal(10, 2)
+  speed                  Decimal?        @db.Decimal(10, 2)
+  averageHeartRate       Int?            @map("average_heart_rate")
+  maximumHeartRate       Int?            @map("maximum_heart_rate")
+  calories               Decimal?        @db.Decimal(10, 2)
+  calorieMetCode         String?         @map("calorie_met_code")
+  calorieMetValue        Decimal?        @map("calorie_met_value") @db.Decimal(5, 2)
+  calorieWeightKg        Decimal?        @map("calorie_weight_kg") @db.Decimal(6, 2)
+  calorieDurationMinutes Decimal?        @map("calorie_duration_minutes") @db.Decimal(10, 6)
+  calorieMethodVersion   String?         @map("calorie_method_version")
+  startedAt              DateTime        @map("started_at")
+  completedAt            DateTime        @map("completed_at")
+  routeData              Json?           @map("route_data")
+  gpsData                Json?           @map("gps_data")
+  idempotencyKey         String?         @map("idempotency_key")
+  user                   User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  splits                 ActivitySplit[]
 
+  @@unique([userId, idempotencyKey])
   @@index([userId])
   @@map("activities")
 }
@@ -61,11 +73,11 @@ model Route {
 }
 
 model ActivitySplit {
-  id             BigInt   @id @default(autoincrement())
-  activityId     BigInt   @map("activity_id")
-  kilometer      Int
-  timeSeconds    Int      @map("time_seconds")
-  activity       Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  id          BigInt   @id @default(autoincrement())
+  activityId  BigInt   @map("activity_id")
+  kilometer   Int
+  timeSeconds Int      @map("time_seconds")
+  activity    Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
 
   @@unique([activityId, kilometer])
   @@index([activityId])

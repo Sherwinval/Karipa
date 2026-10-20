@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../theme/design_tokens.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
@@ -6,6 +7,7 @@ import '../models/route_model.dart';
 import '../widgets/status_badge.dart';
 import '../widgets/metric_tile.dart';
 import '../widgets/route_map_widget.dart';
+import '../services/unit_preferences.dart';
 
 class RouteDetailsScreen extends StatelessWidget {
   final PathRoute route;
@@ -21,13 +23,13 @@ class RouteDetailsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final units = context.watch<UnitPreferences>();
     final userLatLng = currentLocation != null
         ? LatLng(currentLocation!.latitude, currentLocation!.longitude)
         : null;
 
     final roadTypes =
         (route.features['roadTypes'] as List?)?.cast<String>() ?? [];
-    final elevationGain = route.features['elevationGainM'] ?? 20;
 
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
@@ -40,19 +42,29 @@ class RouteDetailsScreen extends StatelessWidget {
       body: SafeArea(
         child: Column(
           children: [
-            // Interactive Map Header
+            // Complete route preview
             Expanded(
               flex: 5,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(20),
-                  child: RouteMapWidget(
-                    routePoints: route.coordinates,
-                    currentLocation: userLatLng,
-                    interactive: true,
-                    initialZoom: 14.2,
-                  ),
+                  child: route.coordinates.length >= 2
+                      ? RouteMapWidget(
+                          routePoints: route.coordinates,
+                          currentLocation: userLatLng,
+                          interactive: true,
+                          initialZoom: 14.2,
+                        )
+                      : Container(
+                          color: Theme.of(context).colorScheme.surfaceContainer,
+                          alignment: Alignment.center,
+                          padding: const EdgeInsets.all(20),
+                          child: const Text(
+                            'A complete route preview is unavailable because the routing service did not provide route geometry.',
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
                 ),
               ),
             ),
@@ -79,15 +91,17 @@ class RouteDetailsScreen extends StatelessWidget {
                           ),
                         ),
                         StatusBadge(
-                          text: '${route.score.toStringAsFixed(0)}% Match',
+                          text: route.rankingSource == 'ai_assisted'
+                              ? 'AI-assisted tie-break'
+                              : 'Fallback ranking',
                           color: Theme.of(context).colorScheme.onSurface,
-                          icon: Icons.auto_awesome,
+                          icon: Icons.straighten,
                         ),
                       ],
                     ),
                     const SizedBox(height: 8),
 
-                    // Suitability & Reasoning
+                    // Ranking details
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
@@ -95,7 +109,7 @@ class RouteDetailsScreen extends StatelessWidget {
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
-                        'AI Recommendation: ${route.reasoning}',
+                        '${route.rankingSource == 'ai_assisted' ? 'AI-assisted tie-break' : 'Deterministic fallback ranking'}: ${route.reasoning}',
                         style: TextStyle(
                           fontSize: 13,
                           color: Theme.of(context).colorScheme.onSurface,
@@ -110,9 +124,9 @@ class RouteDetailsScreen extends StatelessWidget {
                       children: [
                         Expanded(
                           child: MetricTile(
-                            label: 'Distance',
-                            value: route.distanceKm.toStringAsFixed(2),
-                            unit: 'km',
+                            label: 'Actual distance',
+                            value: units.distanceFromKm(route.distanceKm).toStringAsFixed(2),
+                            unit: units.distanceUnit,
                             icon: Icons.straighten,
                             color: KaripaPalette.coral,
                           ),
@@ -120,7 +134,7 @@ class RouteDetailsScreen extends StatelessWidget {
                         const SizedBox(width: 12),
                         Expanded(
                           child: MetricTile(
-                            label: 'Est. Time',
+                            label: 'Routing-service time estimate',
                             value: route.formattedDuration,
                             icon: Icons.timer_outlined,
                             color: KaripaPalette.coral,
@@ -128,37 +142,41 @@ class RouteDetailsScreen extends StatelessWidget {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: MetricTile(
-                            label: 'Elevation Gain',
-                            value: '+$elevationGain',
-                            unit: 'm',
-                            icon: Icons.terrain,
-                            color: KaripaPalette.coral,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: MetricTile(
-                            label: 'Type',
-                            value: route.features['isLoop'] == true
-                                ? 'Loop'
-                                : 'Out & Back',
-                            icon: Icons.alt_route,
-                            color: KaripaPalette.coral,
-                          ),
-                        ),
-                      ],
+                    const SizedBox(height: 16),
+                    Text(
+                      'Requested target: ${units.formatDistance(route.targetDistanceKm)}',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Absolute deviation: ${units.formatDistance(route.absoluteDistanceDeviationKm)} • Percentage deviation: ${route.percentageDistanceDeviation.toStringAsFixed(1)}%',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
                     ),
                     const SizedBox(height: 16),
 
-                    // Roads Analyzed
+                    if (route.features['isLoop'] is bool) ...[
+                      Text(
+                        route.features['isLoop'] == true
+                            ? 'Route shape: generated loop'
+                            : 'Route shape: generated out-and-back',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Theme.of(context).colorScheme.onSurface,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+
                     if (roadTypes.isNotEmpty) ...[
                       Text(
-                        'Road Characteristics Analyzed:',
+                        'Map labels available:',
                         style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.bold,
@@ -186,6 +204,14 @@ class RouteDetailsScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 16),
                     ],
+                    Text(
+                      'Geographic data limitations: the routing response does not verify sidewalks, cycling infrastructure, elevation, or street lighting. Road labels are map data, not a safety assessment.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
 
                     // Action Button
                     ElevatedButton(

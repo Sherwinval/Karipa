@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
@@ -61,7 +62,7 @@ class ApiService {
       ..sort((a, b) => b.completedAt.compareTo(a.completedAt));
   }
 
-  /// Generate real candidate routes with OSRM and AI ranking
+  /// Generate routes from the routing service and return distance-first rankings.
   static Future<List<PathRoute>> generateRoutes({
     required String activity,
     required double targetDistanceKm,
@@ -70,31 +71,109 @@ class ApiService {
     required double longitude,
   }) async {
     final headers = await _headers();
-    final response = await http.post(
-      Uri.parse('$baseUrl/routes/generate'),
-      headers: headers,
-      body: jsonEncode({
-        'activity': activity.toLowerCase(),
-        'targetDistanceKm': targetDistanceKm,
-        'preferences': preferences,
-        'startLocation': {
-          'latitude': latitude,
-          'longitude': longitude,
-        },
-      }),
-    );
-
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      if (data['success'] == true && data['routes'] is List) {
-        return (data['routes'] as List)
-            .map((r) => PathRoute.fromJson(r as Map<String, dynamic>))
-            .toList();
-      }
+    late final http.Response response;
+    try {
+      response = await http
+          .post(
+            Uri.parse('$baseUrl/routes/generate'),
+            headers: headers,
+            body: jsonEncode({
+              'activity': activity.toLowerCase(),
+              'targetDistanceKm': targetDistanceKm,
+              'preferences': preferences,
+              'startLocation': {
+                'latitude': latitude,
+                'longitude': longitude,
+              },
+            }),
+          )
+          .timeout(const Duration(seconds: 30));
+    } on http.ClientException {
+      throw Exception(
+          'Unable to connect to the route service. Check your internet connection and retry.');
+    } on SocketException {
+      throw Exception(
+          'Unable to connect to the route service. Check your internet connection and retry.');
+    } on TimeoutException {
+      throw Exception(
+          'The route service took too long to respond. Please retry.');
     }
 
-    final errData = jsonDecode(response.body);
-    throw Exception(errData['message'] ?? 'Failed to generate routes. Check network connection.');
+    if (response.statusCode == 200) {
+      try {
+        final data = jsonDecode(response.body);
+        if (data is Map && data['success'] == true && data['routes'] is List) {
+          final meta = data['meta'] is Map
+              ? Map<String, dynamic>.from(data['meta'] as Map)
+              : <String, dynamic>{};
+          return (data['routes'] as List)
+              .map((r) => PathRoute.fromJson({
+                    ...Map<String, dynamic>.from(r as Map),
+                    'maximumDistanceDeviationKm':
+                        meta['maximumDistanceDeviationKm'],
+                    'closeCandidateAvailable': meta['closeCandidateAvailable'],
+                  }))
+              .toList();
+        }
+      } on FormatException {
+        throw Exception(
+            'The route service returned an unreadable response. Please retry.');
+      }
+      throw Exception(
+          'The route service returned an invalid response. Please retry.');
+    }
+
+    throw Exception(_responseMessage(response, 'Failed to generate routes'));
+  }
+
+  static Future<Map<String, dynamic>> getProfile() async {
+    final token = await _getToken();
+    if (token == null || token.isEmpty) {
+      return {'heightCm': null, 'weightKg': null};
+    }
+
+    final response = await http
+        .get(
+          Uri.parse('$baseUrl/auth/profile'),
+          headers: await _headers(),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (response.statusCode != 200) {
+      throw Exception(
+          _responseMessage(response, 'Failed to load profile measurements'));
+    }
+    final data = jsonDecode(response.body);
+    if (data is! Map || data['success'] != true || data['profile'] is! Map) {
+      throw Exception('The server returned an invalid profile response');
+    }
+    return Map<String, dynamic>.from(data['profile'] as Map);
+  }
+
+  static Future<Map<String, dynamic>> updateProfile({
+    required double? heightCm,
+    required double? weightKg,
+  }) async {
+    final token = await _getToken();
+    if (token == null || token.isEmpty) {
+      throw Exception('Sign in to save profile measurements.');
+    }
+
+    final response = await http
+        .patch(
+          Uri.parse('$baseUrl/auth/profile'),
+          headers: await _headers(),
+          body: jsonEncode({'heightCm': heightCm, 'weightKg': weightKg}),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (response.statusCode != 200) {
+      throw Exception(
+          _responseMessage(response, 'Failed to save profile measurements'));
+    }
+    final data = jsonDecode(response.body);
+    if (data is! Map || data['success'] != true || data['profile'] is! Map) {
+      throw Exception('The server returned an invalid profile response');
+    }
+    return Map<String, dynamic>.from(data['profile'] as Map);
   }
 
   /// Save route to backend
@@ -103,17 +182,18 @@ class ApiService {
     if (token == null || token.isEmpty) return false;
 
     final headers = await _headers();
-    final response = await http.post(
-      Uri.parse('$baseUrl/routes'),
-      headers: headers,
-      body: jsonEncode({
-        'activityType': route.activityType,
-        'distanceKm': route.distanceKm,
-        'durationSeconds': route.durationSeconds,
-        'score': route.score,
-        'routeData': route.rawJson,
-      }),
-    );
+    final response = await http
+        .post(
+          Uri.parse('$baseUrl/routes'),
+          headers: headers,
+          body: jsonEncode({
+            'activityType': route.activityType,
+            'distanceKm': route.distanceKm,
+            'durationSeconds': route.durationSeconds,
+            'score': route.score,
+          }),
+        )
+        .timeout(const Duration(seconds: 30));
     return response.statusCode == 201;
   }
 
@@ -140,6 +220,29 @@ class ApiService {
           .toList();
     }
     throw Exception('The server returned an invalid activity history response');
+  }
+
+  static Future<Map<String, dynamic>> getWeeklyLeaderboard() async {
+    final token = await _getToken();
+    if (token == null || token.isEmpty) {
+      throw Exception('Sign in to view the weekly leaderboard.');
+    }
+
+    final response = await http
+        .get(
+          Uri.parse('$baseUrl/activities/leaderboard/weekly'),
+          headers: await _headers(),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (response.statusCode != 200) {
+      throw Exception(_responseMessage(response, 'Failed to load leaderboard'));
+    }
+
+    final data = jsonDecode(response.body);
+    if (data is! Map || data['success'] != true || data['entries'] is! List) {
+      throw Exception('The server returned an invalid leaderboard response');
+    }
+    return Map<String, dynamic>.from(data);
   }
 
   /// Get single activity by ID
@@ -189,35 +292,60 @@ class ApiService {
   /// Record completed activity
   static Future<Map<String, dynamic>> saveActivity({
     required String activityType,
+    String recordingMode = 'plan_route',
     required double distanceMeters,
     required int durationSeconds,
+    int? totalElapsedSeconds,
+    double? targetDistanceMeters,
+    Map<String, dynamic>? routeData,
     double? averagePaceSecondsPerKm,
     double? averageSpeedKmh,
     double? calories,
+    String? calorieMetCode,
+    double? calorieMetValue,
+    double? calorieWeightKg,
+    double? calorieDurationMinutes,
+    String? calorieMethodVersion,
+    required String idempotencyKey,
     required DateTime startedAt,
     required DateTime completedAt,
     List<Map<String, dynamic>>? gpsData,
-    Map<String, dynamic>? routeData,
   }) async {
     final token = await _getToken();
     if (token == null || token.isEmpty) {
       final prefs = await SharedPreferences.getInstance();
       final activities = prefs.getStringList(_localActivitiesKey) ?? [];
+      final localId = 'local-$idempotencyKey';
+      if (activities.any((activity) =>
+          (jsonDecode(activity) as Map<String, dynamic>)['id'] == localId)) {
+        return {'success': true, 'localOnly': true};
+      }
       final localActivity = <String, dynamic>{
-        'id': 'local-${completedAt.microsecondsSinceEpoch}',
+        'id': localId,
         'userId': '',
         'activityType': activityType.toLowerCase(),
+        'recordingMode': recordingMode,
         'distanceKm': distanceMeters / 1000,
         'durationSeconds': durationSeconds,
+        'activeDurationSeconds': durationSeconds,
+        'totalElapsedSeconds': totalElapsedSeconds ?? durationSeconds,
+        'targetDistanceKm':
+            targetDistanceMeters == null ? null : targetDistanceMeters / 1000,
+        'routeData': routeData,
         'averagePaceMinPerKm': averagePaceSecondsPerKm == null
             ? null
             : averagePaceSecondsPerKm / 60,
         'averageSpeedKmh': averageSpeedKmh,
         'calories': calories,
+        'calorieMetCode': calorieMetCode,
+        'calorieMetValue': calorieMetValue,
+        'calorieWeightKg': calorieWeightKg,
+        'calorieDurationMinutes': calorieDurationMinutes,
+        'calorieMethodVersion': calorieMethodVersion,
+        'idempotencyKey': idempotencyKey,
         'startedAt': startedAt.toUtc().toIso8601String(),
         'completedAt': completedAt.toUtc().toIso8601String(),
         'gpsData': gpsData ?? [],
-        'routeData': routeData,
       };
       activities.add(jsonEncode(localActivity));
       await prefs.setStringList(_localActivitiesKey, activities);
@@ -225,26 +353,55 @@ class ApiService {
     }
 
     final headers = await _headers();
-    final response = await http.post(
-      Uri.parse('$baseUrl/activities'),
-      headers: headers,
-      body: jsonEncode({
-        'activityType': activityType.toLowerCase(),
-        'distanceMeters': distanceMeters,
-        'durationSeconds': durationSeconds,
-        'averagePaceSecondsPerKm': averagePaceSecondsPerKm,
-        'averageSpeedKmh': averageSpeedKmh,
-        'calories': calories,
-        'startedAt': startedAt.toUtc().toIso8601String(),
-        'completedAt': completedAt.toUtc().toIso8601String(),
-        'gpsData': gpsData,
-        'routeData': routeData,
-      }),
-    );
+    final response = await http
+        .post(
+          Uri.parse('$baseUrl/activities'),
+          headers: headers,
+          body: jsonEncode({
+            'activityType': activityType.toLowerCase(),
+            'recordingMode': recordingMode,
+            'distanceMeters': distanceMeters,
+            'durationSeconds': durationSeconds,
+            'activeDurationSeconds': durationSeconds,
+            'totalElapsedSeconds': totalElapsedSeconds ?? durationSeconds,
+            'targetDistanceMeters': targetDistanceMeters,
+            'averagePaceSecondsPerKm': averagePaceSecondsPerKm,
+            'averageSpeedKmh': averageSpeedKmh,
+            'calories': calories,
+            'calorieMetCode': calorieMetCode,
+            'calorieMetValue': calorieMetValue,
+            'calorieWeightKg': calorieWeightKg,
+            'calorieDurationMinutes': calorieDurationMinutes,
+            'calorieMethodVersion': calorieMethodVersion,
+            'idempotencyKey': idempotencyKey,
+            'startedAt': startedAt.toUtc().toIso8601String(),
+            'completedAt': completedAt.toUtc().toIso8601String(),
+            'gpsData': gpsData,
+            'routeData': routeData,
+          }),
+        )
+        .timeout(const Duration(seconds: 30));
 
-    if (response.statusCode == 201) {
-      final data = jsonDecode(response.body);
-      return {'success': true, 'activity': data['activity']};
+    if (response.statusCode == 201 || response.statusCode == 200) {
+      try {
+        final data = jsonDecode(response.body);
+        if (data is Map && data['success'] == true && data['activity'] is Map) {
+          return {
+            'success': true,
+            'activity': data['activity'],
+            'alreadySaved': data['alreadySaved'] == true
+          };
+        }
+      } on FormatException {
+        return {
+          'success': false,
+          'message': 'The server returned an invalid save confirmation.',
+        };
+      }
+      return {
+        'success': false,
+        'message': 'The server did not confirm that the activity was saved.',
+      };
     }
     return {
       'success': false,

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/design_tokens.dart';
+import 'package:provider/provider.dart';
+import '../services/unit_preferences.dart';
 import 'karipa_button.dart';
 import 'karipa_feedback.dart';
 import 'metric_tile.dart';
@@ -42,6 +44,7 @@ class HomeDashboard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final units = context.watch<UnitPreferences>();
     final lightMode = theme.brightness == Brightness.light;
     // Scope softer card edges to Home, including shared metric/feedback cards.
     final homeTheme = lightMode
@@ -155,7 +158,8 @@ class HomeDashboard extends StatelessWidget {
                             distance: distance,
                             activityCount: activityCount,
                             activeTime: activeTime,
-                            calories: calories),
+                            calories: calories,
+                            distanceUnit: units.distanceUnit),
                         const SizedBox(height: AppSpacing.xxl),
                         LayoutBuilder(builder: (context, section) {
                           const heading =
@@ -218,6 +222,10 @@ class HomeDashboard extends StatelessWidget {
                   activeIcon: Icon(Icons.dashboard),
                   label: 'Home'),
               BottomNavigationBarItem(
+                  icon: Icon(Icons.leaderboard_outlined),
+                  activeIcon: Icon(Icons.leaderboard),
+                  label: 'Leaderboard'),
+              BottomNavigationBarItem(
                   icon: Icon(Icons.history_outlined),
                   activeIcon: Icon(Icons.history),
                   label: 'History'),
@@ -238,16 +246,19 @@ class _HomeStats extends StatelessWidget {
   final String activityCount;
   final String activeTime;
   final String calories;
+  final String distanceUnit;
 
   const _HomeStats(
       {required this.distance,
       required this.activityCount,
       required this.activeTime,
-      required this.calories});
+      required this.calories,
+      required this.distanceUnit});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     return Theme(
       data: theme.copyWith(
           textTheme: theme.textTheme
@@ -266,7 +277,7 @@ class _HomeStats extends StatelessWidget {
                   child: MetricTile(
                       label: 'Distance',
                       value: distance,
-                      unit: 'km',
+                      unit: distanceUnit,
                       icon: Icons.route_outlined)),
               SizedBox(
                   width: width,
@@ -285,10 +296,22 @@ class _HomeStats extends StatelessWidget {
               SizedBox(
                   width: width,
                   child: MetricTile(
-                      label: 'Est. calories',
+                      label: 'Est. calories · provisional',
                       value: calories,
-                      unit: 'kcal',
+                      unit: calories == 'Unavailable' ? null : 'kcal',
                       icon: Icons.local_fire_department_outlined)),
+              if (calories != 'Unavailable')
+                SizedBox(
+                  width: constraints.maxWidth,
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: AppSpacing.xs),
+                    child: Text(
+                      'Only activities with an applicable MET estimate are included; adviser review is pending.',
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: scheme.onSurfaceVariant),
+                    ),
+                  ),
+                ),
             ]);
       }),
     );
@@ -319,10 +342,11 @@ class HomeRecentActivityCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final units = context.watch<UnitPreferences>();
     return Semantics(
       button: true,
       label:
-          '$activity, $date, $distance kilometers, duration $duration, estimated calories $calories kilocalories',
+          '$activity, $date, $distance ${units.distanceUnit}, duration $duration, estimated calories $calories',
       child: Card(
         child: InkWell(
           onTap: onTap,
@@ -355,7 +379,7 @@ class HomeRecentActivityCard extends StatelessWidget {
                       runSpacing: AppSpacing.sm,
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
-                        Text('$distance km',
+                        Text('$distance ${units.distanceUnit}',
                             style: theme.textTheme.headlineSmall?.copyWith(
                                 fontFeatures: const [
                                   FontFeature.tabularFigures()
@@ -363,7 +387,10 @@ class HomeRecentActivityCard extends StatelessWidget {
                         Text(duration, style: theme.textTheme.titleMedium),
                       ]),
                   const SizedBox(height: AppSpacing.sm),
-                  Text('Est. $calories kcal',
+                  Text(
+                      calories == 'Unavailable'
+                          ? 'Calorie estimate unavailable'
+                          : 'Est. $calories kcal',
                       style: theme.textTheme.bodySmall
                           ?.copyWith(color: scheme.onSurfaceVariant)),
                 ],

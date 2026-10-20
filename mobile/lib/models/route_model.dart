@@ -7,6 +7,12 @@ class PathRoute {
   final double distanceKm;
   final int durationSeconds;
   final double score;
+  final double targetDistanceKm;
+  final double absoluteDistanceDeviationKm;
+  final double percentageDistanceDeviation;
+  final double? maximumDistanceDeviationKm;
+  final bool? closeCandidateAvailable;
+  final String rankingSource;
   final int rank;
   final bool isTopRecommendation;
   final String suitability;
@@ -23,6 +29,12 @@ class PathRoute {
     required this.distanceKm,
     required this.durationSeconds,
     required this.score,
+    required this.targetDistanceKm,
+    required this.absoluteDistanceDeviationKm,
+    required this.percentageDistanceDeviation,
+    this.maximumDistanceDeviationKm,
+    this.closeCandidateAvailable,
+    required this.rankingSource,
     required this.rank,
     required this.isTopRecommendation,
     required this.suitability,
@@ -48,12 +60,26 @@ class PathRoute {
     }
 
     return PathRoute(
-      id: json['id']?.toString() ?? 'route-${DateTime.now().millisecondsSinceEpoch}',
-      name: json['name'] ?? 'OpenStreetMap Route',
+      id: json['id']?.toString() ??
+          'route-${DateTime.now().millisecondsSinceEpoch}',
+      name: json['name'] ?? 'Google Maps Route',
       activityType: json['activityType'] ?? json['activity'] ?? 'running',
       distanceKm: (json['distanceKm'] as num?)?.toDouble() ?? 0.0,
       durationSeconds: (json['durationSeconds'] as num?)?.toInt() ?? 0,
-      score: (json['score'] as num?)?.toDouble() ?? 80.0,
+      score: (json['score'] as num?)?.toDouble() ?? 0.0,
+      targetDistanceKm: (json['targetDistanceKm'] as num?)?.toDouble() ?? 0.0,
+      absoluteDistanceDeviationKm:
+          (json['absoluteDistanceDeviationKm'] as num?)?.toDouble() ??
+              (((json['distanceKm'] as num?)?.toDouble() ?? 0) -
+                      ((json['targetDistanceKm'] as num?)?.toDouble() ?? 0))
+                  .abs(),
+      percentageDistanceDeviation:
+          (json['percentageDistanceDeviation'] as num?)?.toDouble() ?? 0.0,
+      maximumDistanceDeviationKm:
+          (json['maximumDistanceDeviationKm'] as num?)?.toDouble(),
+      closeCandidateAvailable: json['closeCandidateAvailable'] as bool?,
+      rankingSource:
+          json['rankingSource']?.toString() ?? 'deterministic_fallback',
       rank: (json['rank'] as num?)?.toInt() ?? 1,
       isTopRecommendation: json['isTopRecommendation'] ?? false,
       suitability: json['suitability'] ?? 'Good match',

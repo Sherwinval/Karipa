@@ -3,6 +3,7 @@ import '../theme/design_tokens.dart';
 import '../widgets/karipa_auth_layout.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
+import '../services/unit_preferences.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -17,6 +18,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  final _heightController = TextEditingController();
+  final _weightController = TextEditingController();
 
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
@@ -29,6 +32,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
+    _heightController.dispose();
+    _weightController.dispose();
     super.dispose();
   }
 
@@ -43,9 +48,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final name = _nameController.text.trim();
     final email = _emailController.text.trim();
     final password = _passwordController.text;
+    final units = context.read<UnitPreferences>();
+    final height = double.tryParse(_heightController.text.trim());
+    final weight = double.tryParse(_weightController.text.trim());
 
     final authService = Provider.of<AuthService>(context, listen: false);
-    final result = await authService.register(name, email, password);
+    final result = await authService.register(
+      name,
+      email,
+      password,
+      heightCm: height == null ? null : units.heightToCm(height),
+      weightKg: weight == null ? null : units.weightToKg(weight),
+    );
 
     if (!mounted) return;
     setState(() => _isLoading = false);
@@ -66,6 +80,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final units = context.watch<UnitPreferences>();
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: AppBar(
@@ -90,6 +105,67 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 style: TextStyle(
                     fontSize: 16,
                     color: Theme.of(context).colorScheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: 20),
+
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainer,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Optional Measurements',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'These measurements are optional. Weight supports provisional gross session calorie estimates using published MET examples; adviser review is pending. Height is not used in the current calorie equation. Route planning and activity tracking work without them.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    TextFormField(
+                      controller: _heightController,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      validator: (value) => _validateOptionalMeasurement(
+                        value,
+                        unit: units.heightUnit,
+                      ),
+                      decoration: InputDecoration(
+                        labelText: 'Height (${units.heightUnit})',
+                        suffixText: units.heightUnit,
+                        border: const OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      controller: _weightController,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      validator: (value) => _validateOptionalMeasurement(
+                        value,
+                        unit: units.weightUnit,
+                      ),
+                      decoration: InputDecoration(
+                        labelText: 'Weight (${units.weightUnit})',
+                        suffixText: units.weightUnit,
+                        border: const OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 28),
 
@@ -267,5 +343,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ),
       ),
     );
+  }
+
+  String? _validateOptionalMeasurement(
+    String? value, {
+    required String unit,
+  }) {
+    if (value == null || value.trim().isEmpty) return null;
+    final measurement = double.tryParse(value.trim());
+    if (measurement == null || !measurement.isFinite) {
+      return 'Enter a valid number in $unit.';
+    }
+    if (measurement <= 0) {
+      return 'Enter a positive value in $unit.';
+    }
+    return null;
   }
 }

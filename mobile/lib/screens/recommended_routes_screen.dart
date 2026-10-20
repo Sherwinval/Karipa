@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../theme/design_tokens.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import '../models/route_model.dart';
 import '../widgets/status_badge.dart';
 import '../widgets/route_map_widget.dart';
+import '../services/unit_preferences.dart';
 
 class RecommendedRoutesScreen extends StatelessWidget {
   final List<PathRoute> routes;
@@ -22,6 +24,7 @@ class RecommendedRoutesScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final units = context.watch<UnitPreferences>();
     final userLatLng = currentLocation != null
         ? LatLng(currentLocation!.latitude, currentLocation!.longitude)
         : null;
@@ -65,7 +68,7 @@ class RecommendedRoutesScreen extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '${activity.toUpperCase()} • ${targetDistanceKm.toStringAsFixed(1)} KM TARGET',
+                          '${activity.toUpperCase()} • ${units.formatDistance(targetDistanceKm, decimals: 1).toUpperCase()} TARGET',
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
@@ -76,7 +79,7 @@ class RecommendedRoutesScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          '${routes.length} Candidate Routes Ranked by AI',
+                          '${routes.length} valid routes ranked by actual network distance',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
@@ -90,6 +93,8 @@ class RecommendedRoutesScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 20),
+            _buildRankingNotice(context),
+            const SizedBox(height: 16),
 
             ...routes
                 .map((route) => _buildRouteCard(context, route, userLatLng)),
@@ -99,8 +104,39 @@ class RecommendedRoutesScreen extends StatelessWidget {
     );
   }
 
+  Widget _buildRankingNotice(BuildContext context) {
+    final units = context.read<UnitPreferences>();
+    final firstRoute = routes.isEmpty ? null : routes.first;
+    final threshold = firstRoute?.maximumDistanceDeviationKm;
+    final rankingMessage = firstRoute?.rankingSource == 'ai_assisted'
+        ? 'AI-assisted tie-breaking was used after route validity, actual distance deviation, and supported preferences were enforced.'
+        : 'Deterministic fallback ranking was used. AI did not supply a valid ranking or is not enabled; route validity and actual distance take priority.';
+    final thresholdMessage = threshold == null
+        ? 'No approved maximum distance deviation is configured. Routes are ordered by their actual distance difference; no tolerance is assumed.'
+        : firstRoute!.closeCandidateAvailable == true
+            ? 'At least one route is within the configured ${units.formatDistance(threshold)} deviation.'
+            : 'No route is within the configured ${units.formatDistance(threshold)} deviation. The closest valid routes are shown as alternatives.';
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Theme.of(context).colorScheme.outline),
+      ),
+      child: Text(
+        '$rankingMessage $thresholdMessage',
+        style: TextStyle(
+          fontSize: 13,
+          color: Theme.of(context).colorScheme.onSurface,
+        ),
+      ),
+    );
+  }
+
   Widget _buildRouteCard(
       BuildContext context, PathRoute route, LatLng? userLocation) {
+    final units = context.read<UnitPreferences>();
     final isTop = route.isTopRecommendation;
 
     return Container(
@@ -117,8 +153,8 @@ class RecommendedRoutesScreen extends StatelessWidget {
         boxShadow: [
           BoxShadow(
             color: isTop
-                ? KaripaPalette.midnight.withOpacity(0.12)
-                : KaripaPalette.midnight.withOpacity(0.03),
+                ? KaripaPalette.midnight.withValues(alpha: 0.12)
+                : KaripaPalette.midnight.withValues(alpha: 0.03),
             blurRadius: 14,
             offset: const Offset(0, 5),
           ),
@@ -136,29 +172,9 @@ class RecommendedRoutesScreen extends StatelessWidget {
               runSpacing: 8,
               children: [
                 StatusBadge(
-                  text: route.matchLabel,
+                  text: isTop ? 'Closest distance' : 'Alternative',
                   color: Theme.of(context).colorScheme.onSurface,
                   icon: isTop ? Icons.star : Icons.thumb_up_alt_outlined,
-                ),
-                StatusBadge(
-                  text: route.suitability,
-                  color: Theme.of(context).colorScheme.onSurface,
-                ),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceContainer,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    '${route.score.toStringAsFixed(0)}% MATCH',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurface,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                    ),
-                  ),
                 ),
               ],
             ),
@@ -183,10 +199,10 @@ class RecommendedRoutesScreen extends StatelessWidget {
                 Row(
                   children: [
                     _buildMetricChip(context, Icons.straighten,
-                        '${route.distanceKm.toStringAsFixed(2)} km'),
+                        'Actual ${units.formatDistance(route.distanceKm)}'),
                     const SizedBox(width: 12),
-                    _buildMetricChip(
-                        context, Icons.timer_outlined, route.formattedDuration),
+                    _buildMetricChip(context, Icons.flag_outlined,
+                        'Target ${units.formatDistance(targetDistanceKm)}'),
                     if (route.features['isLoop'] == true) ...[
                       const SizedBox(width: 12),
                       _buildMetricChip(context, Icons.loop, 'Loop Circuit'),
@@ -195,7 +211,18 @@ class RecommendedRoutesScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  route.reasoning,
+                  'Distance difference: ${units.formatDistance(route.absoluteDistanceDeviationKm)} (${route.percentageDistanceDeviation.toStringAsFixed(1)}%)',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  route.reasoning.isEmpty
+                      ? 'Actual route distance is used for distance-first ordering.'
+                      : route.reasoning,
                   style: TextStyle(
                     fontSize: 13,
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -203,6 +230,18 @@ class RecommendedRoutesScreen extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+            child: Text(
+              (route.features['roadTypes'] as List?)?.isNotEmpty == true
+                  ? 'Available map labels: ${(route.features['roadTypes'] as List).join(', ')}. Sidewalks, cycling infrastructure, elevation, and lighting are not verified by the available routing data.'
+                  : 'Geographic detail is limited: road classifications, sidewalks, cycling infrastructure, elevation, and lighting are unavailable or unverified.',
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
           ),
           const SizedBox(height: 14),

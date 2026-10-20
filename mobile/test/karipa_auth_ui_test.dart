@@ -6,6 +6,7 @@ import 'package:karipa/screens/login_screen.dart';
 import 'package:karipa/screens/register_screen.dart';
 import 'package:karipa/screens/otp_screen.dart';
 import 'package:karipa/services/auth_service.dart';
+import 'package:karipa/services/unit_preferences.dart';
 import 'package:karipa/theme/app_theme.dart';
 import 'package:karipa/widgets/karipa_logo.dart';
 
@@ -18,8 +19,11 @@ Future<void> mount(WidgetTester tester, Widget screen,
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
   SharedPreferences.setMockInitialValues({});
-  await tester.pumpWidget(ChangeNotifierProvider(
-    create: (_) => AuthService(),
+  await tester.pumpWidget(MultiProvider(
+    providers: [
+      ChangeNotifierProvider(create: (_) => AuthService()),
+      ChangeNotifierProvider(create: (_) => UnitPreferences()),
+    ],
     child: MaterialApp(
       theme: AppTheme.buildTheme(brightness: brightness, useGoogleFonts: false),
       builder: (context, child) => MediaQuery(
@@ -96,6 +100,25 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Full name is required'), findsOneWidget);
     expect(find.text('Confirm password is required'), findsOneWidget);
+  });
+  testWidgets('registration measurements are optional and use selected units',
+      (tester) async {
+    await mount(tester, const RegisterScreen(), width: 412, scale: 1);
+    expect(find.text('Optional Measurements'), findsOneWidget);
+    expect(find.text('Height (cm)'), findsOneWidget);
+    expect(find.text('Weight (kg)'), findsOneWidget);
+    await tester.ensureVisible(find.text('Register'));
+    await tester.tap(find.text('Register'));
+    await tester.pumpAndSettle();
+    expect(find.text('Enter a valid number in cm.'), findsNothing);
+    expect(find.text('Enter a valid number in kg.'), findsNothing);
+    await tester
+        .element(find.byType(RegisterScreen))
+        .read<UnitPreferences>()
+        .setSystem(UnitSystem.imperial);
+    await tester.pumpAndSettle();
+    expect(find.text('Height (ft)'), findsOneWidget);
+    expect(find.text('Weight (lb)'), findsOneWidget);
   });
   testWidgets('OTP retains invalid-code feedback', (tester) async {
     await mount(tester, const OtpScreen(email: 'alex@example.com'),

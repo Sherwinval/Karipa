@@ -8,7 +8,6 @@ export interface RoutePreferences {
   preferSidewalks?: boolean;
   preferLoop?: boolean;
   preferCyclingInfrastructure?: boolean;
-  avoidHills?: boolean;
 }
 
 export interface CandidateRoute {
@@ -25,16 +24,38 @@ export interface CandidateRoute {
   features: {
     distanceDeltaKm: number;
     isLoop: boolean;
-    sidewalkRatio: number;
-    majorRoadRatio: number;
-    cyclingLaneRatio: number;
+    sidewalkRatio?: number;
+    majorRoadRatio?: number;
+    cyclingLaneRatio?: number;
     roadTypes: string[];
     elevationGainM?: number;
   };
 }
 
-const MAX_DISTANCE_DEVIATION_KM = 2;
-const DEFAULT_OSRM_URL = 'https://router.project-osrm.org';
+const GOOGLE_ROUTES_URL = 'https://routes.googleapis.com/directions/v2:computeRoutes';
+const GOOGLE_ROUTE_CANDIDATE_SCALES = [0.75, 1, 1.25];
+
+export class GoogleRoutesError extends Error {
+  constructor(
+    message: string,
+    readonly statusCode: number,
+    readonly providerStatus?: string,
+  ) {
+    super(message);
+    this.name = 'GoogleRoutesError';
+  }
+}
+
+function getMaximumDistanceDeviationKm(): number | undefined {
+  const configuredValue = process.env.ROUTE_MAX_DISTANCE_DEVIATION_KM?.trim();
+  if (!configuredValue) return undefined;
+
+  const maximumDeviationKm = Number(configuredValue);
+  if (!Number.isFinite(maximumDeviationKm) || maximumDeviationKm <= 0) {
+    throw new Error('ROUTE_MAX_DISTANCE_DEVIATION_KM must be a positive number');
+  }
+  return maximumDeviationKm;
+}
 
 function haversineDistanceKm([lon1, lat1]: [number, number], [lon2, lat2]: [number, number]): number {
   const toRadians = Math.PI / 180;
@@ -91,15 +112,21 @@ export function validateAndDeduplicateCandidateRoutes(
   routes: CandidateRoute[],
   targetDistanceKm: number
 ): CandidateRoute[] {
-  if (!Number.isFinite(targetDistanceKm) || targetDistanceKm < 0) return [];
+  if (!Number.isFinite(targetDistanceKm) || targetDistanceKm <= 0) return [];
 
-  const minimumDistanceKm = Math.max(0, targetDistanceKm - MAX_DISTANCE_DEVIATION_KM);
-  const maximumDistanceKm = targetDistanceKm + MAX_DISTANCE_DEVIATION_KM;
+  const maximumDistanceDeviationKm = getMaximumDistanceDeviationKm();
   const seenGeometries = new Set<string>();
+  const seenIds = new Set<string>();
   const validRoutes: CandidateRoute[] = [];
 
   for (const route of routes) {
-    if (!route || typeof route !== 'object') continue;
+    if (
+      !route ||
+      typeof route !== 'object' ||
+      typeof route.id !== 'string' ||
+      !/^[A-Za-z0-9_-]{1,100}$/.test(route.id) ||
+      seenIds.has(route.id)
+    ) continue;
     const distanceMeters = route.distanceMeters;
     if (
       !Number.isFinite(distanceMeters) ||
@@ -112,11 +139,16 @@ export function validateAndDeduplicateCandidateRoutes(
     }
 
     const distanceKm = distanceMeters / 1000;
-    if (distanceKm < minimumDistanceKm || distanceKm > maximumDistanceKm) continue;
+    const distanceDeltaKm = Math.abs(distanceKm - targetDistanceKm);
+    if (
+      maximumDistanceDeviationKm !== undefined &&
+      distanceDeltaKm > maximumDistanceDeviationKm
+    ) continue;
 
     const fingerprint = geometryFingerprint(route.geometry.coordinates);
     if (seenGeometries.has(fingerprint)) continue;
     seenGeometries.add(fingerprint);
+    seenIds.add(route.id);
     const features = route.features ?? {} as CandidateRoute['features'];
 
     validRoutes.push({
@@ -124,13 +156,21 @@ export function validateAndDeduplicateCandidateRoutes(
       distanceKm,
       features: {
         ...features,
-        distanceDeltaKm: Math.abs(distanceKm - targetDistanceKm),
+        distanceDeltaKm,
         isLoop: Boolean(features.isLoop),
-        sidewalkRatio: Number.isFinite(features.sidewalkRatio) ? features.sidewalkRatio : 0,
-        majorRoadRatio: Number.isFinite(features.majorRoadRatio) ? features.majorRoadRatio : 1,
-        cyclingLaneRatio: Number.isFinite(features.cyclingLaneRatio) ? features.cyclingLaneRatio : 0,
         roadTypes: Array.isArray(features.roadTypes) ? features.roadTypes : [],
-        elevationGainM: Number.isFinite(features.elevationGainM) ? features.elevationGainM : undefined,
+        sidewalkRatio: typeof features.sidewalkRatio === 'number' && Number.isFinite(features.sidewalkRatio)
+          ? features.sidewalkRatio
+          : undefined,
+        majorRoadRatio: typeof features.majorRoadRatio === 'number' && Number.isFinite(features.majorRoadRatio)
+          ? features.majorRoadRatio
+          : undefined,
+        cyclingLaneRatio: typeof features.cyclingLaneRatio === 'number' && Number.isFinite(features.cyclingLaneRatio)
+          ? features.cyclingLaneRatio
+          : undefined,
+        elevationGainM: typeof features.elevationGainM === 'number' && Number.isFinite(features.elevationGainM)
+          ? features.elevationGainM
+          : undefined,
       },
     });
   }
@@ -173,68 +213,124 @@ function destinationPoint(lat: number, lon: number, distanceKm: number, bearingD
   return [lat2 / rad, lon2 / rad];
 }
 
-let _resolvedBaseUrl: string | null = null;
-
-async function getWorkingOsrmBaseUrl(): Promise<string> {
-  if (_resolvedBaseUrl) return _resolvedBaseUrl;
-
-  const localUrl = process.env.OSRM_URL;
-  if (localUrl && !localUrl.includes('project-osrm.org')) {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 1200);
-      const test = await fetch(`${localUrl.replace(/\/+$/, '')}/health`, { signal: controller.signal });
-      clearTimeout(timeout);
-      if (test.ok) {
-        _resolvedBaseUrl = localUrl.replace(/\/+$/, '');
-        return _resolvedBaseUrl;
-      }
-    } catch {
-      // Local not running, use public OSRM
-    }
-  }
-
-  _resolvedBaseUrl = DEFAULT_OSRM_URL;
-  return _resolvedBaseUrl;
+function googleTravelMode(activity: string): 'WALK' | 'BICYCLE' {
+  return activity.toLowerCase() === 'cycling' ? 'BICYCLE' : 'WALK';
 }
 
-async function callOsrm(profile: string, coordinates: [number, number][]): Promise<any | null> {
-  const coordString = coordinates.map(([lat, lon]) => `${lon.toFixed(6)},${lat.toFixed(6)}`).join(';');
-  const baseUrl = await getWorkingOsrmBaseUrl();
+function decodeGooglePolyline(encoded: string): [number, number][] {
+  const coordinates: [number, number][] = [];
+  let index = 0;
+  let latitude = 0;
+  let longitude = 0;
 
-  try {
-    const url = `${baseUrl}/route/v1/${profile}/${coordString}?overview=full&geometries=geojson&steps=true&annotations=true`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6000);
-
-    const resp = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeout);
-
-    if (resp.ok) {
-      const json = await resp.json();
-      if (json.code === 'Ok' && json.routes && json.routes.length > 0) {
-        return json.routes[0];
-      }
-    }
-  } catch {
-    // Retry once with default OSRM if not already
-    if (baseUrl !== DEFAULT_OSRM_URL) {
-      try {
-        const fallbackUrl = `${DEFAULT_OSRM_URL}/route/v1/${profile}/${coordString}?overview=full&geometries=geojson&steps=true`;
-        const resp = await fetch(fallbackUrl);
-        if (resp.ok) {
-          const json = await resp.json();
-          if (json.code === 'Ok' && json.routes && json.routes.length > 0) {
-            return json.routes[0];
-          }
+  while (index < encoded.length) {
+    const deltas: number[] = [];
+    for (let axis = 0; axis < 2; axis++) {
+      let result = 0;
+      let shift = 0;
+      let byte: number;
+      do {
+        if (index >= encoded.length || shift > 30) {
+          throw new Error('Google Routes API returned malformed route geometry');
         }
-      } catch {
-        // failed
-      }
+        byte = encoded.charCodeAt(index++) - 63;
+        if (byte < 0 || byte > 0x3f) {
+          throw new Error('Google Routes API returned malformed route geometry');
+        }
+        result |= (byte & 0x1f) << shift;
+        shift += 5;
+      } while (byte >= 0x20);
+      deltas.push((result & 1) ? ~(result >> 1) : result >> 1);
     }
+    latitude += deltas[0];
+    longitude += deltas[1];
+    coordinates.push([longitude / 1e5, latitude / 1e5]);
+  }
+  return coordinates;
+}
+
+function toWaypoint([latitude, longitude]: [number, number]) {
+  return {
+    location: {
+      latLng: { latitude, longitude },
+    },
+  };
+}
+
+async function callGoogleRoutes(
+  activity: string,
+  coordinates: [number, number][],
+): Promise<{ distanceMeters: number; durationSeconds: number; coordinates: [number, number][] } | null> {
+  const apiKey = process.env.GOOGLE_MAPS_ROUTES_API_KEY?.trim();
+  if (!apiKey) {
+    throw new GoogleRoutesError(
+      'Google Maps Routes API is not configured. Add GOOGLE_MAPS_ROUTES_API_KEY to the backend environment.',
+      503,
+      'MISSING_API_KEY',
+    );
   }
 
-  return null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  let response: Response;
+  try {
+    response = await fetch(GOOGLE_ROUTES_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': apiKey,
+        'X-Goog-FieldMask': 'routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline',
+      },
+      body: JSON.stringify({
+        origin: toWaypoint(coordinates[0]),
+        destination: toWaypoint(coordinates[coordinates.length - 1]),
+        intermediates: coordinates.slice(1, -1).map(toWaypoint),
+        travelMode: googleTravelMode(activity),
+        polylineQuality: 'HIGH_QUALITY',
+        polylineEncoding: 'ENCODED_POLYLINE',
+        units: 'METRIC',
+        languageCode: 'en',
+      }),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new GoogleRoutesError('Google Maps Routes API timed out. Retry route planning.', 504, 'TIMEOUT');
+    }
+    throw new GoogleRoutesError('Could not connect to Google Maps Routes API.', 503, 'NETWORK_ERROR');
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const payload = await response.json().catch(() => ({})) as {
+    routes?: Array<{
+      distanceMeters?: number;
+      duration?: string;
+      polyline?: { encodedPolyline?: string };
+    }>;
+    error?: { status?: string; message?: string };
+  };
+  if (!response.ok) {
+    const status = payload.error?.status ?? 'PROVIDER_ERROR';
+    const message = status === 'ROUTE_NOT_FOUND'
+      ? `Google Maps has no ${googleTravelMode(activity) === 'BICYCLE' ? 'cycling' : 'walking'} route available for this area.`
+      : 'Google Maps Routes API could not generate a route. Check the API key, enabled APIs, billing, and coverage.';
+    throw new GoogleRoutesError(message, response.status, status);
+  }
+
+  const route = payload.routes?.[0];
+  const encodedPolyline = route?.polyline?.encodedPolyline;
+  if (!route || !Number.isFinite(route.distanceMeters) || !encodedPolyline) return null;
+  const durationSeconds = Number.parseFloat(route.duration ?? '');
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+    throw new Error('Google Routes API returned an invalid route duration');
+  }
+
+  return {
+    distanceMeters: route.distanceMeters!,
+    durationSeconds,
+    coordinates: decodeGooglePolyline(encodedPolyline),
+  };
 }
 
 export async function generateCandidateRoutes(
@@ -243,9 +339,8 @@ export async function generateCandidateRoutes(
   preferences: RoutePreferences,
   startLocation: StartLocation
 ): Promise<CandidateRoute[]> {
-  const profile = getOsrmProfile(activity);
   const start: [number, number] = [startLocation.latitude, startLocation.longitude];
-  const constructionScales = [0.55, 0.75, 0.9, 1, 1.1, 1.25, 1.45];
+  const constructionScales = GOOGLE_ROUTE_CANDIDATE_SCALES;
   const candidateConfigs = constructionScales.flatMap((scale) => {
     const constructionDistanceKm = targetDistanceKm * scale;
     const loopRadiusKm = Math.max(0.1, constructionDistanceKm / (2 * Math.PI));
@@ -253,66 +348,42 @@ export async function generateCandidateRoutes(
     const p1 = destinationPoint(...start, loopRadiusKm, 30);
     const p2 = destinationPoint(...start, loopRadiusKm, 150);
     const p3 = destinationPoint(...start, loopRadiusKm, 270);
-    const q1 = destinationPoint(...start, loopRadiusKm * 1.15, 90);
-    const q2 = destinationPoint(...start, loopRadiusKm * 1.15, 210);
-    const q3 = destinationPoint(...start, loopRadiusKm * 1.15, 330);
     const w1 = destinationPoint(...start, outAndBackRadiusKm, 45);
-    const s1 = destinationPoint(...start, loopRadiusKm * 0.9, 180);
-    const s2 = destinationPoint(...start, loopRadiusKm * 0.9, 270);
 
     return [
-      { name: 'Scenic Park Loop', coords: [start, p1, p2, p3, start], isLoop: true },
-      { name: 'Neighborhood Circuit', coords: [start, q1, q2, q3, start], isLoop: true },
-      { name: 'Boulevard Out & Back', coords: [start, w1, start], isLoop: false },
-      { name: 'Quiet Residential Loop', coords: [start, s1, s2, start], isLoop: true },
+      { name: 'Generated loop', coords: [start, p1, p2, p3, start], isLoop: true },
+      { name: 'Generated out-and-back', coords: [start, w1, start], isLoop: false },
     ].map((candidate) => ({
       ...candidate,
-      name: `${candidate.name} (${scale}x)`,
+      name: `Google Maps ${candidate.name} (${scale}x)`,
     }));
   });
 
-  const results = await Promise.all(
-    candidateConfigs.map(async (config) => {
-      const osrmRoute = await callOsrm(profile, config.coords);
-      return { config, osrmRoute };
-    })
+  const results = await Promise.allSettled(
+    candidateConfigs.map(async (config) => ({
+      config,
+      route: await callGoogleRoutes(activity, config.coords),
+    })),
   );
+  const successfulResults = results.flatMap((result) =>
+    result.status === 'fulfilled' && result.value.route ? [result.value] : [],
+  );
+  const failures = results.filter(
+    (result): result is PromiseRejectedResult => result.status === 'rejected',
+  );
+  if (successfulResults.length > 0 && failures.length > 0) {
+    console.warn(`Google Maps returned ${successfulResults.length} candidates; ${failures.length} candidate requests failed.`);
+  }
+  if (successfulResults.length === 0 && failures.length > 0) {
+    throw failures[0].reason;
+  }
 
   const candidates: CandidateRoute[] = [];
-  for (const { config, osrmRoute } of results) {
-    if (osrmRoute && osrmRoute.geometry && osrmRoute.geometry.coordinates) {
-      const distanceMeters = osrmRoute.distance;
+  for (const { config, route } of successfulResults) {
+    if (route && route.coordinates.length >= 2) {
+      const distanceMeters = route.distanceMeters;
       const distanceKm = distanceMeters / 1000;
-      const durationSeconds = Math.round(osrmRoute.duration);
-
-      // Analyze road classification from steps
-      const roadNames: string[] = [];
-      let totalSteps = 0;
-      let majorRoadSteps = 0;
-      let sidewalkSteps = 0;
-
-      if (osrmRoute.legs) {
-        for (const leg of osrmRoute.legs) {
-          if (leg.steps) {
-            for (const step of leg.steps) {
-              totalSteps++;
-              const name = step.name || '';
-              if (name && !roadNames.includes(name)) roadNames.push(name);
-              const ref = (step.ref || '').toLowerCase();
-              const mode = (step.mode || '').toLowerCase();
-              if (ref.includes('highway') || ref.includes('ah') || name.toLowerCase().includes('avenue') || name.toLowerCase().includes('highway')) {
-                majorRoadSteps++;
-              }
-              if (mode.includes('foot') || name.toLowerCase().includes('walk') || name.toLowerCase().includes('park') || name.toLowerCase().includes('trail')) {
-                sidewalkSteps++;
-              }
-            }
-          }
-        }
-      }
-
-      const majorRatio = totalSteps > 0 ? Number((majorRoadSteps / totalSteps).toFixed(2)) : 0.1;
-      const sidewalkRatio = totalSteps > 0 ? Number((Math.max(sidewalkSteps, totalSteps - majorRoadSteps) / totalSteps).toFixed(2)) : 0.85;
+      const durationSeconds = Math.round(route.durationSeconds);
 
       candidates.push({
         id: `route-${candidates.length + 1}`,
@@ -323,49 +394,12 @@ export async function generateCandidateRoutes(
         durationSeconds,
         geometry: {
           type: 'LineString',
-          coordinates: osrmRoute.geometry.coordinates,
+          coordinates: route.coordinates,
         },
         features: {
           distanceDeltaKm: Number(Math.abs(distanceKm - targetDistanceKm).toFixed(2)),
           isLoop: config.isLoop,
-          sidewalkRatio,
-          majorRoadRatio: majorRatio,
-          cyclingLaneRatio: activity === 'cycling' ? 0.75 : 0.3,
-          roadTypes: roadNames.slice(0, 5),
-          elevationGainM: Math.round(distanceKm * 4),
-        },
-      });
-    }
-  }
-
-  // Retry with a direct routed leg if OSRM rejected all multi-waypoint candidates.
-  if (candidates.length === 0) {
-    const fallbackP1 = destinationPoint(startLocation.latitude, startLocation.longitude, Math.max(0.15, targetDistanceKm / 2), 45);
-    const osrmRoute = await callOsrm(profile, [
-      start,
-      fallbackP1,
-    ]);
-
-    if (osrmRoute && osrmRoute.geometry) {
-      const distanceKm = osrmRoute.distance / 1000;
-      candidates.push({
-        id: 'route-1',
-        name: 'Direct OpenStreetMap Route',
-        activityType: activity,
-        distanceKm,
-        distanceMeters: osrmRoute.distance,
-        durationSeconds: Math.round(osrmRoute.duration),
-        geometry: {
-          type: 'LineString',
-          coordinates: osrmRoute.geometry.coordinates,
-        },
-        features: {
-          distanceDeltaKm: Number(Math.abs(distanceKm - targetDistanceKm).toFixed(2)),
-          isLoop: false,
-          sidewalkRatio: 0.8,
-          majorRoadRatio: 0.1,
-          cyclingLaneRatio: activity === 'cycling' ? 0.8 : 0.3,
-          roadTypes: ['Street', 'Pathway'],
+          roadTypes: [],
         },
       });
     }
