@@ -1,17 +1,39 @@
-# Karipa mobile frontend
+# Karipa mobile app
 
-Karipa is the project's user-facing Flutter application. Its Flutter package name is `karipa`.
+The Flutter app supports route planning, GPS activity recording, activity history, profile settings, and the weekly leaderboard. Planned routes use Valhalla; the app displays maps with OpenStreetMap tiles.
 
-The Android and Apple bundle identifiers now use `com.example.karipa`. Builds with these identifiers install separately from older builds, and the placeholder identifiers should be replaced with publisher-owned values before release.
+## Requirements
 
-- [Frontend instructions and protected boundaries](AGENTS.md)
-- [Development guide: environment, running, debugging, and UI validation](../docs/frontend-development.md)
-- [Approved Karipa design system](../docs/karipa-design-system.md)
-- [Current white/beige palette, changed files and validation](../docs/frontend-palette-report.md)
-- [Phase 1 implementation and validation report](../docs/frontend-phase1-report.md)
-- [Phase 2 Home implementation, validation and approved theme decision](../docs/frontend-phase2-report.md)
-- [Phase 0 changes, checks, limitations, and next steps](../docs/frontend-phase0-report.md)
-- [Historical palette exploration — superseded](../docs/karipa-design-exploration.md)
-- [Graphify evaluation](../docs/graphify-evaluation.md)
+- Flutter SDK with Dart 3.3 or later
+- Android Studio with an emulator, or a connected Android device
+- A running Karipa API and configured database; see the [project setup](../README.md#setup)
 
-Phase 1 establishes the coral/midnight/warm-neutral shared design system. Phase 2 implements Home; its report records validation and the approved integration with newer theme-toggle edits. Other screen redesigns require separate approval.
+## Run on Android
+
+From the repository root:
+
+```powershell
+Set-Location mobile
+flutter pub get
+flutter devices
+flutter run
+```
+
+The Android emulator connects to the API at `http://10.0.2.2:3000/api` by default. For a physical Android device, connect the phone and development computer to a network where the phone can reach the computer, then pass the computer's LAN address:
+
+```powershell
+flutter run --dart-define=API_BASE_URL=http://192.168.1.25:3000/api
+```
+
+Replace the example IP with the computer's address. Confirm that `http://<computer-LAN-IP>:3000/api/health` is reachable from the phone. Plain HTTP is supported only in Android debug builds; use HTTPS for release builds.
+
+## Validate changes
+
+From `mobile/`:
+
+```powershell
+flutter analyze
+flutter test
+```
+
+For frontend development conventions and UI validation guidance, see [docs/frontend-development.md](../docs/frontend-development.md). The `ai/` Python service is a legacy scorer and is not required to run the app.
