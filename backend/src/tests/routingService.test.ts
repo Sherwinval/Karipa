@@ -9,7 +9,7 @@ import {
 let geometryCounter = 0;
 const originalMaximumDeviation = process.env.ROUTE_MAX_DISTANCE_DEVIATION_KM;
 const originalAiRankingEnabled = process.env.AI_ROUTE_RANKING_ENABLED;
-const originalGoogleRoutesApiKey = process.env.GOOGLE_MAPS_ROUTES_API_KEY;
+const originalValhallaBaseUrl = process.env.VALHALLA_BASE_URL;
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -23,10 +23,10 @@ afterEach(() => {
   } else {
     process.env.AI_ROUTE_RANKING_ENABLED = originalAiRankingEnabled;
   }
-  if (originalGoogleRoutesApiKey === undefined) {
-    delete process.env.GOOGLE_MAPS_ROUTES_API_KEY;
+  if (originalValhallaBaseUrl === undefined) {
+    delete process.env.VALHALLA_BASE_URL;
   } else {
-    process.env.GOOGLE_MAPS_ROUTES_API_KEY = originalGoogleRoutesApiKey;
+    process.env.VALHALLA_BASE_URL = originalValhallaBaseUrl;
   }
 });
 
@@ -125,18 +125,20 @@ describe('route distance validation', () => {
   });
 });
 
-describe('Google Maps Routes API generation', () => {
-  it('requests Google walking routes and measures returned geometry and distance', async () => {
-    process.env.GOOGLE_MAPS_ROUTES_API_KEY = 'test-routes-key';
-    const requests: RequestInit[] = [];
-    vi.stubGlobal('fetch', vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
-      requests.push(init ?? {});
+describe('Valhalla routing API generation', () => {
+  it('requests Valhalla pedestrian route and measures returned geometry and distance', async () => {
+    process.env.VALHALLA_BASE_URL = 'http://localhost:8002';
+    const requests: { url: string; init: RequestInit }[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      requests.push({ url: String(input), init: init ?? {} });
       return new Response(JSON.stringify({
-        routes: [{
-          distanceMeters: 4800,
-          duration: '900s',
-          polyline: { encodedPolyline: '??gEgE' },
-        }],
+        trip: {
+          legs: [{
+            shape: '??o}@o}@',
+            summary: { length: 4.8, time: 900 },
+          }],
+          summary: { length: 4.8, time: 900 },
+        },
       }), { status: 200 });
     }));
 
@@ -148,26 +150,27 @@ describe('Google Maps Routes API generation', () => {
     );
 
     expect(requests).toHaveLength(6);
-    expect(JSON.parse(String(requests[0].body)).travelMode).toBe('WALK');
-    expect((requests[0].headers as Record<string, string>)['X-Goog-Api-Key'])
-      .toBe('test-routes-key');
+    expect(requests[0].url).toBe('http://localhost:8002/route');
+    expect(JSON.parse(String(requests[0].init.body)).costing).toBe('pedestrian');
     expect(candidates).toHaveLength(1);
     expect(candidates[0].distanceMeters).toBe(4800);
     expect(candidates[0].geometry.coordinates).toEqual([[0, 0], [0.001, 0.001]]);
   });
 
-  it('uses Google bicycle mode without silently falling back to another provider', async () => {
-    process.env.GOOGLE_MAPS_ROUTES_API_KEY = 'test-routes-key';
+  it('uses Valhalla bicycle mode without silently falling back to another provider', async () => {
+    process.env.VALHALLA_BASE_URL = 'http://localhost:8002';
     let requestCount = 0;
     vi.stubGlobal('fetch', vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
       requestCount++;
-      expect(JSON.parse(String(init?.body)).travelMode).toBe('BICYCLE');
+      expect(JSON.parse(String(init?.body)).costing).toBe('bicycle');
       return new Response(JSON.stringify({
-        routes: [{
-          distanceMeters: 5000,
-          duration: '900s',
-          polyline: { encodedPolyline: '??gEgE' },
-        }],
+        trip: {
+          legs: [{
+            shape: '??o}@o}@',
+            summary: { length: 5.0, time: 900 },
+          }],
+          summary: { length: 5.0, time: 900 },
+        },
       }), { status: 200 });
     }));
 
@@ -180,10 +183,11 @@ describe('Google Maps Routes API generation', () => {
     expect(requestCount).toBe(6);
   });
 
-  it('returns an explicit no-coverage error when Google has no bicycle route', async () => {
-    process.env.GOOGLE_MAPS_ROUTES_API_KEY = 'test-routes-key';
+  it('returns an explicit no-coverage error when Valhalla has no bicycle route', async () => {
+    process.env.VALHALLA_BASE_URL = 'http://localhost:8002';
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
-      error: { status: 'ROUTE_NOT_FOUND' },
+      error_code: 171,
+      error: 'No path could be found for input',
     }), { status: 404 })));
 
     await expect(generateCandidateRoutes(
@@ -191,17 +195,17 @@ describe('Google Maps Routes API generation', () => {
       5,
       {},
       { latitude: 14.5995, longitude: 120.9842 },
-    )).rejects.toThrow('Google Maps has no cycling route available');
+    )).rejects.toThrow('No cycling route is available for this area.');
   });
 
-  it('requires a server-side Google Routes API key', async () => {
-    delete process.env.GOOGLE_MAPS_ROUTES_API_KEY;
+  it('requires a server-side VALHALLA_BASE_URL configuration', async () => {
+    delete process.env.VALHALLA_BASE_URL;
     await expect(generateCandidateRoutes(
       'walking',
       5,
       {},
       { latitude: 14.5995, longitude: 120.9842 },
-    )).rejects.toThrow('GOOGLE_MAPS_ROUTES_API_KEY');
+    )).rejects.toThrow('VALHALLA_BASE_URL');
   });
 });
 
@@ -239,17 +243,25 @@ describe('route ranking', () => {
     expect(noLoopPreference[0].id).toBe('direct');
   });
 
-  it('uses AI only as a validated tie-break and labels the ranking source', async () => {
+  it('uses AI to rank all validated routes and labels the ranking source', async () => {
     process.env.AI_ROUTE_RANKING_ENABLED = 'true';
-    const routes = [route('alpha', 5), route('beta', 5)];
+    const routes = [route('alpha', 5), route('beta', 6)];
+    const aiRanker = vi.fn(async (
+      _activity: string,
+      _targetDistance: number,
+      _preferLoop: boolean,
+      _candidates: { id: string; distanceKm: number; absoluteDeviationKm: number; isLoop: boolean }[],
+    ) => ['beta', 'alpha']);
     const ranked = await rankCandidateRoutes(
       'running',
       5,
       {},
       routes,
-      async () => ['beta', 'alpha'],
+      aiRanker,
     );
 
+    expect(aiRanker).toHaveBeenCalledTimes(1);
+    expect(aiRanker.mock.calls[0][3].map(({ id }) => id)).toEqual(['alpha', 'beta']);
     expect(ranked.map(({ id }) => id)).toEqual(['beta', 'alpha']);
     expect(ranked.every(({ rankingSource }) => rankingSource === 'ai_assisted')).toBe(true);
   });
@@ -268,9 +280,14 @@ describe('route ranking', () => {
     expect(ranked.every(({ rankingSource }) => rankingSource === 'ai_assisted')).toBe(true);
   });
 
-  it('does not call AI to change the order of candidates with different primary scores', async () => {
+  it('sends all valid routes to AI even when their distance scores differ', async () => {
     delete process.env.AI_ROUTE_RANKING_ENABLED;
-    const aiRanker = vi.fn(async () => ['far', 'near']);
+    const aiRanker = vi.fn(async (
+      _activity: string,
+      _targetDistance: number,
+      _preferLoop: boolean,
+      _candidates: { id: string; distanceKm: number; absoluteDeviationKm: number; isLoop: boolean }[],
+    ) => ['far', 'near']);
     const ranked = await rankCandidateRoutes(
       'running',
       5,
@@ -279,32 +296,9 @@ describe('route ranking', () => {
       aiRanker,
     );
 
-    expect(aiRanker).not.toHaveBeenCalled();
-    expect(ranked.map(({ id }) => id)).toEqual(['near', 'far']);
-    expect(ranked.every(({ rankingSource }) => rankingSource === 'deterministic_fallback')).toBe(true);
-  });
-
-  it('sends only equivalent primary-score groups to AI', async () => {
-    delete process.env.AI_ROUTE_RANKING_ENABLED;
-    const aiRanker = vi.fn(async (
-      _activity: string,
-      _target: number,
-      _preferLoop: boolean,
-      candidates: { id: string; distanceKm: number; absoluteDeviationKm: number; isLoop: boolean }[],
-    ) =>
-      [...candidates].reverse().map(({ id }) => id),
-    );
-    const ranked = await rankCandidateRoutes(
-      'running',
-      5,
-      {},
-      [route('near', 5), route('tie-a', 6), route('tie-b', 6)],
-      aiRanker,
-    );
-
     expect(aiRanker).toHaveBeenCalledTimes(1);
-    expect(aiRanker.mock.calls[0][3].map(({ id }) => id)).toEqual(['tie-a', 'tie-b']);
-    expect(ranked.map(({ id }) => id)).toEqual(['near', 'tie-b', 'tie-a']);
+    expect(aiRanker.mock.calls[0][3].map(({ id }) => id)).toEqual(['near', 'far']);
+    expect(ranked.map(({ id }) => id)).toEqual(['far', 'near']);
     expect(ranked.every(({ rankingSource }) => rankingSource === 'ai_assisted')).toBe(true);
   });
 

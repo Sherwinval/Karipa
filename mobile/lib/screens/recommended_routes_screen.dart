@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../theme/design_tokens.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:latlong2/latlong.dart';
 import '../models/route_model.dart';
 import '../widgets/status_badge.dart';
 import '../widgets/route_map_widget.dart';
@@ -25,10 +24,6 @@ class RecommendedRoutesScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final units = context.watch<UnitPreferences>();
-    final userLatLng = currentLocation != null
-        ? LatLng(currentLocation!.latitude, currentLocation!.longitude)
-        : null;
-
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: AppBar(
@@ -38,66 +33,83 @@ class RecommendedRoutesScreen extends StatelessWidget {
         elevation: 0,
       ),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(20.0),
-          children: [
-            // Header summary
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
-                borderRadius: BorderRadius.circular(16),
-                border:
-                    Border.all(color: Theme.of(context).colorScheme.outline),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surfaceContainer,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Icon(Icons.explore,
-                        color: Theme.of(context).colorScheme.onSurface,
-                        size: 24),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${activity.toUpperCase()} • ${units.formatDistance(targetDistanceKm, decimals: 1).toUpperCase()} TARGET',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color:
-                                Theme.of(context).colorScheme.onSurfaceVariant,
-                            letterSpacing: 0.8,
+        child: CustomScrollView(
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.all(20.0),
+              sliver: SliverList(
+                delegate: SliverChildListDelegate(
+                  [
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surface,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                            color: Theme.of(context).colorScheme.outline),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .surfaceContainer,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Icon(Icons.explore,
+                                color: Theme.of(context).colorScheme.onSurface,
+                                size: 24),
                           ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '${routes.length} valid routes ranked by actual network distance',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Theme.of(context).colorScheme.onSurface,
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${activity.toUpperCase()} • ${units.formatDistance(targetDistanceKm, decimals: 1).toUpperCase()} TARGET',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                    letterSpacing: 0.8,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '${routes.length} valid routes ranked by actual network distance',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color:
+                                        Theme.of(context).colorScheme.onSurface,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 20),
+                    _buildRankingNotice(context),
+                    const SizedBox(height: 16),
+                  ],
+                ),
               ),
             ),
-            const SizedBox(height: 20),
-            _buildRankingNotice(context),
-            const SizedBox(height: 16),
-
-            ...routes
-                .map((route) => _buildRouteCard(context, route, userLatLng)),
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: 20.0),
+              sliver: SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) => _buildRouteCard(context, routes[index]),
+                  childCount: routes.length,
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -109,10 +121,12 @@ class RecommendedRoutesScreen extends StatelessWidget {
     final firstRoute = routes.isEmpty ? null : routes.first;
     final threshold = firstRoute?.maximumDistanceDeviationKm;
     final rankingMessage = firstRoute?.rankingSource == 'ai_assisted'
-        ? 'AI-assisted tie-breaking was used after route validity, actual distance deviation, and supported preferences were enforced.'
+        ? 'AI ranked valid routes using distance from the target and the loop preference.'
         : 'Deterministic fallback ranking was used. AI did not supply a valid ranking or is not enabled; route validity and actual distance take priority.';
     final thresholdMessage = threshold == null
-        ? 'No approved maximum distance deviation is configured. Routes are ordered by their actual distance difference; no tolerance is assumed.'
+        ? firstRoute?.rankingSource == 'ai_assisted'
+            ? 'No maximum distance deviation is configured; all valid routes are considered, with their distance differences shown.'
+            : 'No approved maximum distance deviation is configured. Routes are ordered by their actual distance difference; no tolerance is assumed.'
         : firstRoute!.closeCandidateAvailable == true
             ? 'At least one route is within the configured ${units.formatDistance(threshold)} deviation.'
             : 'No route is within the configured ${units.formatDistance(threshold)} deviation. The closest valid routes are shown as alternatives.';
@@ -134,12 +148,12 @@ class RecommendedRoutesScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildRouteCard(
-      BuildContext context, PathRoute route, LatLng? userLocation) {
+  Widget _buildRouteCard(BuildContext context, PathRoute route) {
     final units = context.read<UnitPreferences>();
     final isTop = route.isTopRecommendation;
 
     return Container(
+      key: ValueKey(route.id),
       margin: const EdgeInsets.only(bottom: 20),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
@@ -172,7 +186,11 @@ class RecommendedRoutesScreen extends StatelessWidget {
               runSpacing: 8,
               children: [
                 StatusBadge(
-                  text: isTop ? 'Closest distance' : 'Alternative',
+                  text: isTop
+                      ? route.rankingSource == 'ai_assisted'
+                          ? 'AI recommendation'
+                          : 'Closest distance'
+                      : 'Alternative',
                   color: Theme.of(context).colorScheme.onSurface,
                   icon: isTop ? Icons.star : Icons.thumb_up_alt_outlined,
                 ),
@@ -260,7 +278,6 @@ class RecommendedRoutesScreen extends StatelessWidget {
                 borderRadius: BorderRadius.circular(14),
                 child: RouteMapWidget(
                   routePoints: route.coordinates,
-                  currentLocation: userLocation,
                   interactive: false,
                   initialZoom: 13.8,
                 ),

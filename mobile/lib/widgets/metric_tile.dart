@@ -9,6 +9,7 @@ class MetricTile extends StatelessWidget {
   final IconData? icon;
   final Color? color;
   final bool prominent;
+  final bool reserveUnitSpace;
 
   const MetricTile({
     super.key,
@@ -18,6 +19,7 @@ class MetricTile extends StatelessWidget {
     this.icon,
     this.color,
     this.prominent = false,
+    this.reserveUnitSpace = false,
   });
 
   @override
@@ -57,21 +59,37 @@ class MetricTile extends StatelessWidget {
                 ),
                 const SizedBox(height: AppSpacing.md),
               ],
-              Text(label,
-                  style: theme.textTheme.labelMedium?.copyWith(color: ink)),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelMedium?.copyWith(color: ink),
+              ),
               const SizedBox(height: AppSpacing.sm),
-              Text(value,
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  value,
+                  maxLines: 1,
                   style: (prominent
                           ? theme.textTheme.displayMedium
                           : theme.textTheme.headlineSmall)
                       ?.copyWith(
                     color: ink,
                     fontFeatures: const [FontFeature.tabularFigures()],
-                  )),
-              if (unit != null) ...[
+                  ),
+                ),
+              ),
+              if (unit != null || reserveUnitSpace) ...[
                 const SizedBox(height: AppSpacing.xs),
-                Text(unit!,
-                    style: theme.textTheme.bodySmall?.copyWith(color: ink)),
+                Text(
+                  unit ?? ' ',
+                  maxLines: 1,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: unit != null ? ink : Colors.transparent,
+                  ),
+                ),
               ],
             ],
           ),

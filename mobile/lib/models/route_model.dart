@@ -62,7 +62,7 @@ class PathRoute {
     return PathRoute(
       id: json['id']?.toString() ??
           'route-${DateTime.now().millisecondsSinceEpoch}',
-      name: json['name'] ?? 'Google Maps Route',
+      name: json['name'] ?? 'Valhalla Route',
       activityType: json['activityType'] ?? json['activity'] ?? 'running',
       distanceKm: (json['distanceKm'] as num?)?.toDouble() ?? 0.0,
       durationSeconds: (json['durationSeconds'] as num?)?.toInt() ?? 0,

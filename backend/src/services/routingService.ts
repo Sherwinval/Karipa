@@ -32,17 +32,16 @@ export interface CandidateRoute {
   };
 }
 
-const GOOGLE_ROUTES_URL = 'https://routes.googleapis.com/directions/v2:computeRoutes';
-const GOOGLE_ROUTE_CANDIDATE_SCALES = [0.75, 1, 1.25];
+const CANDIDATE_SCALES = [0.75, 1, 1.25];
 
-export class GoogleRoutesError extends Error {
+export class RoutingServiceError extends Error {
   constructor(
     message: string,
     readonly statusCode: number,
     readonly providerStatus?: string,
   ) {
     super(message);
-    this.name = 'GoogleRoutesError';
+    this.name = 'RoutingServiceError';
   }
 }
 
@@ -178,18 +177,6 @@ export function validateAndDeduplicateCandidateRoutes(
   return validRoutes;
 }
 
-function getOsrmProfile(activity: string): string {
-  switch (activity.toLowerCase()) {
-    case 'cycling':
-      return 'bike';
-    case 'walking':
-    case 'jogging':
-    case 'running':
-    default:
-      return 'foot';
-  }
-}
-
 /**
  * Calculates a destination coordinate given start point, distance (km), and bearing (degrees).
  */
@@ -213,11 +200,22 @@ function destinationPoint(lat: number, lon: number, distanceKm: number, bearingD
   return [lat2 / rad, lon2 / rad];
 }
 
-function googleTravelMode(activity: string): 'WALK' | 'BICYCLE' {
-  return activity.toLowerCase() === 'cycling' ? 'BICYCLE' : 'WALK';
+// ── Valhalla integration ────────────────────────────────────────────────────
+
+/**
+ * Maps Karipa activity types to Valhalla costing models.
+ * Pedestrian costing is used for walking, jogging, and running.
+ * Bicycle costing is used for cycling.
+ */
+function valhallaCosting(activity: string): 'pedestrian' | 'bicycle' {
+  return activity.toLowerCase() === 'cycling' ? 'bicycle' : 'pedestrian';
 }
 
-function decodeGooglePolyline(encoded: string): [number, number][] {
+/**
+ * Decodes a Valhalla encoded polyline (precision 6) into GeoJSON [lon, lat] coordinates.
+ * Valhalla uses the standard Google polyline algorithm with 10^6 precision.
+ */
+function decodeValhallaPolyline(encoded: string): [number, number][] {
   const coordinates: [number, number][] = [];
   let index = 0;
   let latitude = 0;
@@ -231,11 +229,11 @@ function decodeGooglePolyline(encoded: string): [number, number][] {
       let byte: number;
       do {
         if (index >= encoded.length || shift > 30) {
-          throw new Error('Google Routes API returned malformed route geometry');
+          throw new Error('Valhalla returned malformed route geometry');
         }
         byte = encoded.charCodeAt(index++) - 63;
         if (byte < 0 || byte > 0x3f) {
-          throw new Error('Google Routes API returned malformed route geometry');
+          throw new Error('Valhalla returned malformed route geometry');
         }
         result |= (byte & 0x1f) << shift;
         shift += 5;
@@ -244,92 +242,161 @@ function decodeGooglePolyline(encoded: string): [number, number][] {
     }
     latitude += deltas[0];
     longitude += deltas[1];
-    coordinates.push([longitude / 1e5, latitude / 1e5]);
+    // Output as [lon, lat] for GeoJSON format
+    coordinates.push([longitude / 1e6, latitude / 1e6]);
   }
   return coordinates;
 }
 
-function toWaypoint([latitude, longitude]: [number, number]) {
-  return {
-    location: {
-      latLng: { latitude, longitude },
-    },
-  };
+interface ValhallaLocation {
+  lat: number;
+  lon: number;
+  type: 'break' | 'through';
 }
 
-async function callGoogleRoutes(
+function toValhallaLocation(
+  [latitude, longitude]: [number, number],
+  type: 'break' | 'through' = 'break',
+): ValhallaLocation {
+  return { lat: latitude, lon: longitude, type };
+}
+
+interface ValhallaResponse {
+  trip?: {
+    legs?: Array<{
+      shape?: string;
+      summary?: {
+        length?: number;
+        time?: number;
+      };
+    }>;
+    summary?: {
+      length?: number;
+      time?: number;
+    };
+    status?: number;
+    status_message?: string;
+  };
+  error_code?: number;
+  error?: string;
+}
+
+async function callValhalla(
   activity: string,
-  coordinates: [number, number][],
+  coordinates: [number, number][], // [lat, lon] pairs
 ): Promise<{ distanceMeters: number; durationSeconds: number; coordinates: [number, number][] } | null> {
-  const apiKey = process.env.GOOGLE_MAPS_ROUTES_API_KEY?.trim();
-  if (!apiKey) {
-    throw new GoogleRoutesError(
-      'Google Maps Routes API is not configured. Add GOOGLE_MAPS_ROUTES_API_KEY to the backend environment.',
+  const baseUrl = process.env.VALHALLA_BASE_URL?.trim();
+  if (!baseUrl) {
+    throw new RoutingServiceError(
+      'Valhalla routing service is not configured. Add VALHALLA_BASE_URL to the backend environment.',
       503,
-      'MISSING_API_KEY',
+      'MISSING_CONFIGURATION',
     );
   }
+
+  const costing = valhallaCosting(activity);
+
+  // First and last locations are "break" (stop/leg boundary);
+  // intermediate locations are "through" (pass-through waypoints).
+  const locations = coordinates.map((coord, index) => {
+    const isEndpoint = index === 0 || index === coordinates.length - 1;
+    return toValhallaLocation(coord, isEndpoint ? 'break' : 'through');
+  });
+
+  const requestBody = {
+    locations,
+    costing,
+    units: 'kilometers',
+    directions_type: 'none', // Only need shape and summary, not turn-by-turn
+  };
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
   let response: Response;
   try {
-    response = await fetch(GOOGLE_ROUTES_URL, {
+    response = await fetch(`${baseUrl}/route`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Goog-Api-Key': apiKey,
-        'X-Goog-FieldMask': 'routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline',
-      },
-      body: JSON.stringify({
-        origin: toWaypoint(coordinates[0]),
-        destination: toWaypoint(coordinates[coordinates.length - 1]),
-        intermediates: coordinates.slice(1, -1).map(toWaypoint),
-        travelMode: googleTravelMode(activity),
-        polylineQuality: 'HIGH_QUALITY',
-        polylineEncoding: 'ENCODED_POLYLINE',
-        units: 'METRIC',
-        languageCode: 'en',
-      }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody),
       signal: controller.signal,
     });
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
-      throw new GoogleRoutesError('Google Maps Routes API timed out. Retry route planning.', 504, 'TIMEOUT');
+      throw new RoutingServiceError(
+        'Valhalla routing service timed out. Retry route planning.',
+        504,
+        'TIMEOUT',
+      );
     }
-    throw new GoogleRoutesError('Could not connect to Google Maps Routes API.', 503, 'NETWORK_ERROR');
+    throw new RoutingServiceError(
+      'Could not connect to Valhalla routing service.',
+      503,
+      'NETWORK_ERROR',
+    );
   } finally {
     clearTimeout(timeout);
   }
 
-  const payload = await response.json().catch(() => ({})) as {
-    routes?: Array<{
-      distanceMeters?: number;
-      duration?: string;
-      polyline?: { encodedPolyline?: string };
-    }>;
-    error?: { status?: string; message?: string };
-  };
+  const payload = (await response.json().catch(() => ({}))) as ValhallaResponse;
+
   if (!response.ok) {
-    const status = payload.error?.status ?? 'PROVIDER_ERROR';
-    const message = status === 'ROUTE_NOT_FOUND'
-      ? `Google Maps has no ${googleTravelMode(activity) === 'BICYCLE' ? 'cycling' : 'walking'} route available for this area.`
-      : 'Google Maps Routes API could not generate a route. Check the API key, enabled APIs, billing, and coverage.';
-    throw new GoogleRoutesError(message, response.status, status);
+    const errorCode = payload.error_code;
+    const errorMessage = payload.error ?? 'Unknown routing error';
+
+    // Error codes 170/171: No path could be found for the input
+    if (errorCode === 170 || errorCode === 171 || errorCode === 442) {
+      const activityLabel = costing === 'bicycle' ? 'cycling' : 'walking';
+      throw new RoutingServiceError(
+        `No ${activityLabel} route is available for this area.`,
+        404,
+        'ROUTE_NOT_FOUND',
+      );
+    }
+
+    // Error code 154: Path distance exceeds max limit
+    if (errorCode === 154) {
+      throw new RoutingServiceError(
+        'The requested route distance exceeds the routing service limit. Try a shorter distance.',
+        400,
+        'DISTANCE_EXCEEDED',
+      );
+    }
+
+    throw new RoutingServiceError(
+      `Valhalla routing service error: ${errorMessage}`,
+      response.status >= 400 && response.status < 600 ? response.status : 502,
+      `VALHALLA_${errorCode ?? 'ERROR'}`,
+    );
   }
 
-  const route = payload.routes?.[0];
-  const encodedPolyline = route?.polyline?.encodedPolyline;
-  if (!route || !Number.isFinite(route.distanceMeters) || !encodedPolyline) return null;
-  const durationSeconds = Number.parseFloat(route.duration ?? '');
-  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
-    throw new Error('Google Routes API returned an invalid route duration');
+  const trip = payload.trip;
+  if (!trip?.legs || trip.legs.length === 0) return null;
+
+  // Combine decoded shape from all legs (handles multi-leg responses)
+  let allCoordinates: [number, number][] = [];
+  for (const leg of trip.legs) {
+    if (!leg.shape) continue;
+    const legCoords = decodeValhallaPolyline(leg.shape);
+    if (allCoordinates.length > 0 && legCoords.length > 0) {
+      // Skip first point of subsequent legs to avoid duplicate junction points
+      allCoordinates = allCoordinates.concat(legCoords.slice(1));
+    } else {
+      allCoordinates = allCoordinates.concat(legCoords);
+    }
+  }
+
+  const distanceKm = trip.summary?.length;
+  const durationSeconds = trip.summary?.time;
+
+  if (!Number.isFinite(distanceKm) || !distanceKm || distanceKm <= 0) return null;
+  if (!Number.isFinite(durationSeconds) || !durationSeconds || durationSeconds <= 0) {
+    throw new Error('Valhalla returned an invalid route duration');
   }
 
   return {
-    distanceMeters: route.distanceMeters!,
-    durationSeconds,
-    coordinates: decodeGooglePolyline(encodedPolyline),
+    distanceMeters: Math.round(distanceKm * 1000),
+    durationSeconds: Math.round(durationSeconds),
+    coordinates: allCoordinates,
   };
 }
 
@@ -340,7 +407,7 @@ export async function generateCandidateRoutes(
   startLocation: StartLocation
 ): Promise<CandidateRoute[]> {
   const start: [number, number] = [startLocation.latitude, startLocation.longitude];
-  const constructionScales = GOOGLE_ROUTE_CANDIDATE_SCALES;
+  const constructionScales = CANDIDATE_SCALES;
   const candidateConfigs = constructionScales.flatMap((scale) => {
     const constructionDistanceKm = targetDistanceKm * scale;
     const loopRadiusKm = Math.max(0.1, constructionDistanceKm / (2 * Math.PI));
@@ -355,14 +422,14 @@ export async function generateCandidateRoutes(
       { name: 'Generated out-and-back', coords: [start, w1, start], isLoop: false },
     ].map((candidate) => ({
       ...candidate,
-      name: `Google Maps ${candidate.name} (${scale}x)`,
+      name: `Valhalla ${candidate.name} (${scale}x)`,
     }));
   });
 
   const results = await Promise.allSettled(
     candidateConfigs.map(async (config) => ({
       config,
-      route: await callGoogleRoutes(activity, config.coords),
+      route: await callValhalla(activity, config.coords),
     })),
   );
   const successfulResults = results.flatMap((result) =>
@@ -372,7 +439,7 @@ export async function generateCandidateRoutes(
     (result): result is PromiseRejectedResult => result.status === 'rejected',
   );
   if (successfulResults.length > 0 && failures.length > 0) {
-    console.warn(`Google Maps returned ${successfulResults.length} candidates; ${failures.length} candidate requests failed.`);
+    console.warn(`Valhalla returned ${successfulResults.length} candidates; ${failures.length} candidate requests failed.`);
   }
   if (successfulResults.length === 0 && failures.length > 0) {
     throw failures[0].reason;

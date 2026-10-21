@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.js';
-import { generateCandidateRoutes, GoogleRoutesError } from '../services/routingService.js';
+import { generateCandidateRoutes, RoutingServiceError } from '../services/routingService.js';
 import { rankCandidateRoutes } from '../services/routeRankingService.js';
 
 export const routeRouter = Router();
@@ -46,7 +46,7 @@ routeRouter.post('/generate', async (req, res) => {
   }
 
   try {
-    // 1. Generate candidates from Google Maps Routes API results
+    // 1. Generate candidates via Valhalla routing engine
     const candidates = await generateCandidateRoutes(
       activity,
       targetDistanceKm,
@@ -60,10 +60,8 @@ routeRouter.post('/generate', async (req, res) => {
         success: false,
         message: configuredDeviation
           ? `No valid route was found within the configured ${configuredDeviation} km deviation of the requested ${targetDistanceKm} km. Try again or adjust the target distance.`
-          : activity === 'cycling'
-            ? 'Google Maps did not return a cycling route for this area. Cycling coverage is not verified here; no alternate routing provider is used.'
-            : 'Google Maps did not return any valid routes. Check your connection and try again.',
-        provider: 'google_maps',
+          : 'The routing service did not return any valid routes for this area. Check your connection and try again.',
+        provider: 'valhalla',
       });
       return;
     }
@@ -103,20 +101,20 @@ routeRouter.post('/generate', async (req, res) => {
       },
     });
   } catch (error: any) {
-    if (error instanceof GoogleRoutesError) {
-      console.error(`Google Maps route generation failed (${error.providerStatus ?? error.statusCode})`);
+    if (error instanceof RoutingServiceError) {
+      console.error(`Route generation failed (${error.providerStatus ?? error.statusCode})`);
       res.status(error.statusCode).json({
         success: false,
         message: error.message,
-        provider: 'google_maps',
+        provider: 'valhalla',
       });
       return;
     }
     console.error('Route generation failed:', error);
     res.status(500).json({
       success: false,
-      message: 'Google Maps route generation failed unexpectedly. Please retry.',
-      provider: 'google_maps',
+      message: 'Route generation failed unexpectedly. Please retry.',
+      provider: 'valhalla',
     });
   }
 });

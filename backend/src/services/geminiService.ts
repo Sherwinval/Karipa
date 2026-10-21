@@ -433,8 +433,8 @@ export async function getRouteRecommendation(
 }
 
 /**
- * Ask Gemini to break ties among already-valid routes. Coordinates, road names,
- * account details, and GPS history are deliberately not sent.
+ * Ask Gemini to rank already-valid routes. Coordinates, road names, account
+ * details, and GPS history are deliberately not sent.
  */
 export async function rankRouteCandidateIds(
   activityType: string,
@@ -453,7 +453,7 @@ export async function rankRouteCandidateIds(
     `Order these already-validated ${activityType} route identifiers.`,
     `Requested target: ${targetDistanceKm} km. Prefer a loop: ${preferLoop}.`,
     'Only use the supplied candidate IDs and facts. Return every ID exactly once.',
-    'This order is only a tie-breaker; server-side ranking always prioritizes actual distance deviation and confirmed preferences.',
+    'Rank every candidate using its distance from the requested target and whether it matches the loop preference. Favor a closer route unless another candidate has a compelling stated advantage.',
     JSON.stringify(candidateData),
   ].join('\n');
 

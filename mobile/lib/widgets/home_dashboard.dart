@@ -265,54 +265,86 @@ class _HomeStats extends StatelessWidget {
               .copyWith(headlineSmall: theme.textTheme.displaySmall)),
       child: LayoutBuilder(builder: (context, constraints) {
         final largeText = MediaQuery.textScalerOf(context).scale(14) > 21;
-        final width = largeText
-            ? constraints.maxWidth
-            : (constraints.maxWidth - AppSpacing.md) / 2;
-        return Wrap(
-            spacing: AppSpacing.md,
-            runSpacing: AppSpacing.md,
+        final tile1 = MetricTile(
+            label: 'Distance',
+            value: distance,
+            unit: distanceUnit,
+            reserveUnitSpace: true,
+            icon: Icons.route_outlined);
+        final tile2 = MetricTile(
+            label: 'Activities',
+            icon: Icons.bolt_outlined,
+            value: activityCount,
+            unit: 'total',
+            reserveUnitSpace: true);
+        final tile3 = MetricTile(
+            label: 'Active time',
+            value: activeTime,
+            unit: 'total',
+            reserveUnitSpace: true,
+            icon: Icons.schedule_outlined);
+        final tile4 = MetricTile(
+            label: 'Est. calories',
+            value: calories,
+            unit: calories == 'Unavailable' ? null : 'kcal',
+            reserveUnitSpace: true,
+            icon: Icons.local_fire_department_outlined);
+
+        Widget? note;
+        if (calories != 'Unavailable') {
+          note = Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.xs),
+            child: Text(
+              'Only activities with an applicable MET estimate are included; adviser review is pending.',
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+          );
+        }
+
+        if (largeText) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              SizedBox(
-                  width: width,
-                  child: MetricTile(
-                      label: 'Distance',
-                      value: distance,
-                      unit: distanceUnit,
-                      icon: Icons.route_outlined)),
-              SizedBox(
-                  width: width,
-                  child: MetricTile(
-                      label: 'Activities',
-                      icon: Icons.bolt_outlined,
-                      value: activityCount,
-                      unit: 'total')),
-              SizedBox(
-                  width: width,
-                  child: MetricTile(
-                      label: 'Active time',
-                      value: activeTime,
-                      unit: 'total',
-                      icon: Icons.schedule_outlined)),
-              SizedBox(
-                  width: width,
-                  child: MetricTile(
-                      label: 'Est. calories · provisional',
-                      value: calories,
-                      unit: calories == 'Unavailable' ? null : 'kcal',
-                      icon: Icons.local_fire_department_outlined)),
-              if (calories != 'Unavailable')
-                SizedBox(
-                  width: constraints.maxWidth,
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: AppSpacing.xs),
-                    child: Text(
-                      'Only activities with an applicable MET estimate are included; adviser review is pending.',
-                      style: theme.textTheme.bodySmall
-                          ?.copyWith(color: scheme.onSurfaceVariant),
-                    ),
-                  ),
-                ),
-            ]);
+              tile1,
+              const SizedBox(height: AppSpacing.md),
+              tile2,
+              const SizedBox(height: AppSpacing.md),
+              tile3,
+              const SizedBox(height: AppSpacing.md),
+              tile4,
+              if (note != null) note,
+            ],
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(child: tile1),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(child: tile2),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(child: tile3),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(child: tile4),
+                ],
+              ),
+            ),
+            if (note != null) note,
+          ],
+        );
       }),
     );
   }

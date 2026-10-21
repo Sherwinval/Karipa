@@ -93,69 +93,43 @@ export async function rankCandidateRoutes(
   });
 
   let aiOrder: Map<string, number> | undefined;
-  let aiResolvedTie = false;
   if (process.env.AI_ROUTE_RANKING_ENABLED?.trim().toLowerCase() !== 'false') {
-    const primaryOrder = [...scored].sort((a, b) =>
-      a.distanceDeltaKm - b.distanceDeltaKm ||
-      b.preferenceScore - a.preferenceScore ||
-      a.route.id.localeCompare(b.route.id)
-    );
-    const tiedGroups: ScoredRoute[][] = [];
-    for (const item of primaryOrder) {
-      const currentGroup = tiedGroups[tiedGroups.length - 1];
+    try {
+      const candidates = scored.map(({ route, distanceDeltaKm }) => ({
+        id: route.id,
+        distanceKm: route.distanceKm,
+        absoluteDeviationKm: distanceDeltaKm,
+        isLoop: route.features.isLoop,
+      }));
+      const aiRankedIds = await aiRanker(
+        activity,
+        targetDistanceKm,
+        preferences.preferLoop === true,
+        candidates,
+      );
+      const validIds = new Set(candidates.map(({ id }) => id));
+      const returnedIds = new Set(aiRankedIds);
       if (
-        currentGroup &&
-        currentGroup[0].distanceDeltaKm === item.distanceDeltaKm &&
-        currentGroup[0].preferenceScore === item.preferenceScore
+        aiRankedIds.length !== validIds.size ||
+        returnedIds.size !== validIds.size ||
+        aiRankedIds.some((id) => !validIds.has(id))
       ) {
-        currentGroup.push(item);
-      } else {
-        tiedGroups.push([item]);
+        throw new Error('AI returned missing, duplicate, or unknown route identifiers');
       }
+      aiOrder = new Map(aiRankedIds.map((id, index) => [id, index]));
+    } catch (error) {
+      const errorCode = typeof error === 'object' && error !== null && 'code' in error
+        ? String(error.code)
+        : 'INVALID_RANKING';
+      console.warn(`AI route ranking unavailable (${errorCode}); using deterministic fallback`);
     }
-
-    aiOrder = new Map();
-    for (const group of tiedGroups) {
-      if (group.length < 2) continue;
-      try {
-        const candidates = group.map(({ route, distanceDeltaKm }) => ({
-          id: route.id,
-          distanceKm: route.distanceKm,
-          absoluteDeviationKm: distanceDeltaKm,
-          isLoop: route.features.isLoop,
-        }));
-        const aiRankedIds = await aiRanker(
-          activity,
-          targetDistanceKm,
-          preferences.preferLoop === true,
-          candidates,
-        );
-        const validIds = new Set(candidates.map(({ id }) => id));
-        const returnedIds = new Set(aiRankedIds);
-        if (
-          aiRankedIds.length !== validIds.size ||
-          returnedIds.size !== validIds.size ||
-          aiRankedIds.some((id) => !validIds.has(id))
-        ) {
-          throw new Error('AI returned missing, duplicate, or unknown route identifiers');
-        }
-        aiResolvedTie = true;
-        aiRankedIds.forEach((id, index) => aiOrder!.set(id, index));
-      } catch (error) {
-        const errorCode = typeof error === 'object' && error !== null && 'code' in error
-          ? String(error.code)
-          : 'INVALID_RANKING';
-        console.warn(`AI route tie-break unavailable (${errorCode}); using deterministic fallback`);
-      }
-    }
-    if (!aiResolvedTie) aiOrder = undefined;
   }
 
-  scored.sort((a, b) =>
-    a.distanceDeltaKm - b.distanceDeltaKm ||
-    b.preferenceScore - a.preferenceScore ||
-    (aiOrder?.get(a.route.id) ?? 0) - (aiOrder?.get(b.route.id) ?? 0) ||
-    a.route.id.localeCompare(b.route.id)
+  scored.sort((a, b) => aiOrder
+    ? aiOrder.get(a.route.id)! - aiOrder.get(b.route.id)!
+    : a.distanceDeltaKm - b.distanceDeltaKm ||
+      b.preferenceScore - a.preferenceScore ||
+      a.route.id.localeCompare(b.route.id)
   );
 
   return scored.map((item, index) => {

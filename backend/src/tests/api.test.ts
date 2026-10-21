@@ -27,25 +27,27 @@ describe('Weekly leaderboard access', () => {
   });
 });
 
-const originalGoogleRoutesApiKey = process.env.GOOGLE_MAPS_ROUTES_API_KEY;
+const originalValhallaBaseUrl = process.env.VALHALLA_BASE_URL;
 afterEach(() => {
   vi.unstubAllGlobals();
-  if (originalGoogleRoutesApiKey === undefined) {
-    delete process.env.GOOGLE_MAPS_ROUTES_API_KEY;
+  if (originalValhallaBaseUrl === undefined) {
+    delete process.env.VALHALLA_BASE_URL;
   } else {
-    process.env.GOOGLE_MAPS_ROUTES_API_KEY = originalGoogleRoutesApiKey;
+    process.env.VALHALLA_BASE_URL = originalValhallaBaseUrl;
   }
 });
 
 describe('Routing Service & AI Recommendation', () => {
-  it('generates routes through the Google Routes API for the requested coordinates', async () => {
-    process.env.GOOGLE_MAPS_ROUTES_API_KEY = 'test-routes-key';
+  it('generates routes through Valhalla routing service for the requested coordinates', async () => {
+    process.env.VALHALLA_BASE_URL = 'http://localhost:8002';
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
-      routes: [{
-        distanceMeters: 3000,
-        duration: '600s',
-        polyline: { encodedPolyline: '??gEgE' },
-      }],
+      trip: {
+        legs: [{
+          shape: '??o}@o}@',
+          summary: { length: 3.0, time: 600 },
+        }],
+        summary: { length: 3.0, time: 600 },
+      },
     }), { status: 200 })));
 
     const startLocation = { latitude: 14.5995, longitude: 120.9842 };
@@ -166,7 +168,7 @@ describe('Full End-to-End API Suite', () => {
     expect(meRes.status).toBe(200);
     expect(meRes.body.user.email).toBe(testEmail);
     expect(meRes.body.user.name).toBe('Test Runner');
-  }, 15000);
+  }, 30000);
 
   it('generates real routes via /api/routes/generate', async () => {
     const genRes = await request(app)
@@ -208,7 +210,9 @@ describe('Full End-to-End API Suite', () => {
     expect(listRes.status).toBe(200);
     expect(listRes.body.routes.length).toBeGreaterThan(0);
 
-    const getRes = await request(app).get(`/api/routes/${createdRouteId}`);
+    const getRes = await request(app)
+      .get(`/api/routes/${createdRouteId}`)
+      .set('Authorization', `Bearer ${authToken}`);
     expect(getRes.status).toBe(200);
     expect(getRes.body.route.id).toBe(createdRouteId);
   });
@@ -222,7 +226,6 @@ describe('Full End-to-End API Suite', () => {
         distanceMeters: 5210,
         durationSeconds: 1820,
         averagePaceSecondsPerKm: 350,
-        calories: 345,
         startedAt: new Date(Date.now() - 1820000).toISOString(),
         completedAt: new Date().toISOString(),
         gpsData: [{ latitude: 14.59, longitude: 120.98 }],

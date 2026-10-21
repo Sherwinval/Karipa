@@ -29,9 +29,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
   UnitSystem? _renderedUnitSystem;
   String? _profileError;
 
+  String _formatMeasurement(double? value, {required int decimals}) {
+    if (value == null) return '';
+    final fixed = value.toStringAsFixed(decimals);
+    if (fixed.contains('.')) {
+      final trimmed = fixed
+          .replaceAll(RegExp(r'0+$'), '')
+          .replaceAll(RegExp(r'\.$'), '');
+      return trimmed;
+    }
+    return fixed;
+  }
+
+  void _syncControllersToDraft(UnitPreferences units) {
+    _heightController.text = _formatMeasurement(
+      _draftHeightCm == null ? null : units.heightFromCm(_draftHeightCm!),
+      decimals: units.isImperial ? 2 : 1,
+    );
+    _weightController.text = _formatMeasurement(
+      _draftWeightKg == null ? null : units.weightFromKg(_draftWeightKg!),
+      decimals: 1,
+    );
+    _renderedUnitSystem = units.system;
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final units = Provider.of<UnitPreferences>(context);
+    if (_renderedUnitSystem != units.system) {
+      _syncControllersToDraft(units);
+    }
     if (!_profileLoadStarted &&
         Provider.of<AuthService>(context).isAuthenticated) {
       _profileLoadStarted = true;
@@ -48,6 +76,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _savedWeight = profile['weightKg']?.toString() ?? '';
       _draftHeightCm = double.tryParse(_savedHeight);
       _draftWeightKg = double.tryParse(_savedWeight);
+      if (mounted) {
+        final units = context.read<UnitPreferences>();
+        _syncControllersToDraft(units);
+      }
       setState(() {
         _profileError = null;
         _profileLoaded = true;
@@ -79,6 +111,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _savedWeight = saved['weightKg']?.toString() ?? '';
       _draftHeightCm = double.tryParse(_savedHeight);
       _draftWeightKg = double.tryParse(_savedWeight);
+      if (mounted) {
+        final units = context.read<UnitPreferences>();
+        _syncControllersToDraft(units);
+      }
       setState(() {
         _profileSaving = false;
         _isEditingMeasurements = false;
@@ -144,15 +180,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final colorScheme = theme.colorScheme;
     final units = context.watch<UnitPreferences>();
     if (_renderedUnitSystem != units.system) {
-      _heightController.text = _draftHeightCm == null
-          ? ''
-          : units
-              .heightFromCm(_draftHeightCm!)
-              .toStringAsFixed(units.isImperial ? 2 : 1);
-      _weightController.text = _draftWeightKg == null
-          ? ''
-          : units.weightFromKg(_draftWeightKg!).toStringAsFixed(1);
-      _renderedUnitSystem = units.system;
+      _syncControllersToDraft(units);
     }
 
     return Scaffold(
@@ -593,17 +621,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               _draftHeightCm = double.tryParse(_savedHeight);
                               _draftWeightKg = double.tryParse(_savedWeight);
                               final units = context.read<UnitPreferences>();
-                              _heightController.text = _draftHeightCm == null
-                                  ? ''
-                                  : units
-                                      .heightFromCm(_draftHeightCm!)
-                                      .toStringAsFixed(
-                                          units.isImperial ? 2 : 1);
-                              _weightController.text = _draftWeightKg == null
-                                  ? ''
-                                  : units
-                                      .weightFromKg(_draftWeightKg!)
-                                      .toStringAsFixed(1);
+                              _syncControllersToDraft(units);
                               setState(() {
                                 _profileError = null;
                                 _isEditingMeasurements = false;

@@ -9,11 +9,11 @@ Selected proposed architecture for this capstone build:
 - **Mobile app:** Flutter + Dart + Material 3 + Google Fonts
 - **Backend:** Node.js + Express + TypeScript
 - **Database:** Supabase Postgres with PostGIS + RLS migration files tracked in the repo
-- **Maps and routing:** Google Maps for Flutter displays routes; the Google Maps Routes API generates network routes. Candidate distance uses the provider's returned route distance. No maximum deviation is assumed by default; `ROUTE_MAX_DISTANCE_DEVIATION_KM` remains optional pending approval.
+r- **Maps and routing:** `flutter_map` with OpenStreetMap tiles renders interactive maps and route geometry in the Flutter mobile application; the open-source **Valhalla** routing engine generates road/trail network routes using `pedestrian` costing (walking, jogging, running) and `bicycle` costing (cycling). Candidate distance uses the provider's returned route distance. No maximum deviation is assumed by default; `ROUTE_MAX_DISTANCE_DEVIATION_KM` remains optional pending approval.
 - **AI ranking:** Gemini route ranking is enabled by default and is invoked only for candidates tied on both actual distance deviation and supported preference score. Deterministic ranking handles non-tied candidates and is the fallback when AI is explicitly disabled, unavailable, or returns invalid IDs.
 - **Auth:** Express JWT authentication. Profile measurements and activity records are scoped to the authenticated account.
-- **Provider limitation:** Google Maps cycling-route availability must be verified for the project region. The app does not silently use another provider when Google cannot return cycling routes.
-- **Provider content:** Google route geometry is displayed on Google Maps and kept transient for route selection/tracking. Newly saved route/activity database records do not include Google-derived route geometry; user GPS tracks remain separate user data.
+- **Routing capabilities:** Valhalla provides dedicated pedestrian and bicycle routing profiles based on OpenStreetMap data, supporting walking, jogging, running, and cycling without proprietary per-request API fees.
+- **Provider content:** Route geometry is displayed via OpenStreetMap tiles in `flutter_map` and kept transient for route selection/tracking. Saved route/activity database records store summary metadata and user GPS tracks separately.
 
 ### Current measurement and tracking behavior
 
@@ -67,8 +67,8 @@ JWT_SECRET=replace_with_a_long_random_secret
 DATABASE_URL="postgresql://USER:PASSWORD@HOST:6543/postgres?pgbouncer=true"
 DIRECT_URL="postgresql://USER:PASSWORD@HOST:5432/postgres"
 
-# Google Maps Routes API and AI-assisted ranking (enabled by default)
-GOOGLE_MAPS_ROUTES_API_KEY=your-server-side-routes-api-key
+# Valhalla routing engine base URL and AI-assisted ranking (enabled by default)
+VALHALLA_BASE_URL=https://valhalla1.openstreetmap.de
 GEMINI_API_KEY=your-gemini-api-key
 AI_ROUTE_RANKING_ENABLED=true
 # Set AI_ROUTE_RANKING_ENABLED=false to use deterministic ranking only.
@@ -82,23 +82,21 @@ ROUTE_MAX_DISTANCE_DEVIATION_KM=
 
 ---
 
-### Step 1a: Configure Google Maps Platform
+### Step 1a: Configure Valhalla Routing Engine
 
-Create separate, restricted API keys in the same Google Cloud project:
+Karipa uses the open-source **Valhalla** routing engine for route generation:
 
-- **Backend key:** enable Routes API and set `GOOGLE_MAPS_ROUTES_API_KEY` in `backend/.env`. Keep this server-side key private and restrict it to the Routes API and the backend's hosting/network policy.
-- **Android key:** enable Maps SDK for Android and expose `GOOGLE_MAPS_ANDROID_API_KEY` to the Gradle process. Restrict it to the Android app id and signing certificate.
-- **iOS key:** enable Maps SDK for iOS and create `mobile/ios/Flutter/MapsSecrets.xcconfig` containing `GOOGLE_MAPS_IOS_API_KEY=your-ios-sdk-key`. This file is git-ignored. Restrict the key to the iOS bundle id and Maps SDK for iOS.
+- **Public instance (Development/Testing):**
+  Set `VALHALLA_BASE_URL=https://valhalla1.openstreetmap.de` in `backend/.env`. This public demo instance requires no API keys and works out-of-the-box. Note that public instances have fair-use rate limits.
+- **Self-hosted instance (Production/Local Docker):**
+  You can run Valhalla locally via Docker with regional OpenStreetMap extract (e.g. Philippines):
+  ```powershell
+  docker run -dt --name valhalla -p 8002:8002 -v $PWD/custom_files:/custom_files ghcr.io/gis-ops/docker-valhalla/valhalla:latest
+  ```
+  Then set `VALHALLA_BASE_URL=http://localhost:8002` in `backend/.env`.
 
-Example for a PowerShell session:
-
-```powershell
-$env:GOOGLE_MAPS_ANDROID_API_KEY = "your-android-sdk-key"
-```
-
-Google Maps Platform billing and the corresponding APIs must be enabled. Android/iOS SDK keys are included in mobile builds, so protect them with application restrictions; never use the server-side Routes API key as a mobile SDK key. Route candidate generation makes up to six billable Routes API requests per planning attempt. Google bicycle-routing coverage in the Philippines is not confirmed; when Google returns no cycling route, Karipa reports that result rather than switching providers. Cycling activity tracking remains available.
-
-The Google Maps Flutter plugin requires Android API level 24 or later. The Android minimum SDK is set accordingly.
+**No Google Maps API keys are required:**
+The mobile app renders map tiles and route shapes using `flutter_map` with OpenStreetMap raster tiles (`https://tile.openstreetmap.org/{z}/{x}/{y}.png`), eliminating all Google Maps SDK API key requirements and billing dependencies.
 
 ---
 
