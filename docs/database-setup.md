@@ -23,7 +23,7 @@ npx prisma generate
 npx prisma migrate dev
 ```
 
-The migrations create the initial users, activities, and routes tables, then add email-verification fields and activity splits. The migration command is intentionally not run until local credentials and PostGIS are configured. Do not use `prisma migrate reset`.
+The migrations create the initial `users`, activities, and routes tables, add email-verification fields and activity splits, and rename `users` to `tbl_users` before adding profile, idempotency, and recording fields. The guarded rename preserves existing records, skips the rename if `tbl_users` already exists, and fails clearly if both names or neither name exists. The migration command is intentionally not run until local credentials and PostGIS are configured. Do not use `prisma migrate reset`.
 
 ## Verification
 
