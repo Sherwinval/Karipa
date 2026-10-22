@@ -1,4 +1,3 @@
-import { GoogleGenAI, Type } from '@google/genai';
 import { z } from 'zod';
 
 // ---------------------------------------------------------------------------
@@ -11,7 +10,6 @@ export interface ActivitySummary {
   durationSeconds: number;
   averagePaceMinPerKm: number | null;
   averageSpeedKmh: number | null;
-  averageHeartRate: number | null;
   calories: number | null;
   date: string;
 }
@@ -74,113 +72,97 @@ export interface FitnessInsightsResult {
 // Custom error class
 // ---------------------------------------------------------------------------
 
-export class GeminiServiceError extends Error {
+export class GroqServiceError extends Error {
   public readonly code: string;
   public readonly statusCode: number;
 
   constructor(message: string, code: string, statusCode: number = 503) {
     super(message);
-    this.name = 'GeminiServiceError';
+    this.name = 'GroqServiceError';
     this.code = code;
     this.statusCode = statusCode;
   }
 }
 
 // ---------------------------------------------------------------------------
-// Gemini client — lazy-initialised
+// Groq configuration
 // ---------------------------------------------------------------------------
 
-let _client: GoogleGenAI | null = null;
-
-function getClient(): GoogleGenAI {
-  const apiKey = process.env.GEMINI_API_KEY;
+function getApiKey(): string {
+  const apiKey = process.env.GROQ_API_KEY?.trim();
   if (!apiKey) {
-    throw new GeminiServiceError(
-      'GEMINI_API_KEY environment variable is not set',
+    throw new GroqServiceError(
+      'GROQ_API_KEY environment variable is not set',
       'API_KEY_MISSING',
       500,
     );
   }
-  if (!_client) {
-    _client = new GoogleGenAI({ apiKey });
-  }
-  return _client;
+  return apiKey;
 }
 
-const MODEL = 'gemini-2.0-flash';
+const MODEL = 'openai/gpt-oss-120b';
+const API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const REQUEST_TIMEOUT_MS = 30_000;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+async function generateJson(
+  prompt: string,
+  options: { temperature: number; maxTokens: number; systemInstruction?: string },
+): Promise<string> {
+  let response: Response;
+  try {
+    response = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${getApiKey()}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        messages: [
+          ...(options.systemInstruction
+            ? [{ role: 'system', content: options.systemInstruction }]
+            : []),
+          { role: 'user', content: prompt },
+        ],
+        response_format: { type: 'json_object' },
+        temperature: options.temperature,
+        max_tokens: options.maxTokens,
+      }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (error) {
+    throw handleGroqError(error);
+  }
+
+  if (!response.ok) {
+    throw handleGroqError({ status: response.status });
+  }
+
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new GroqServiceError('Groq returned an invalid response', 'INVALID_RESPONSE', 502);
+  }
+
+  if (!isRecord(payload) || !Array.isArray(payload.choices)) {
+    throw new GroqServiceError('Groq returned an invalid response', 'INVALID_RESPONSE', 502);
+  }
+  const firstChoice = payload.choices[0];
+  if (!isRecord(firstChoice) || !isRecord(firstChoice.message) ||
+      typeof firstChoice.message.content !== 'string' || !firstChoice.message.content) {
+    throw new GroqServiceError('Groq returned an empty response', 'EMPTY_RESPONSE', 502);
+  }
+  return firstChoice.message.content;
+}
 
 // ---------------------------------------------------------------------------
 // Schema definitions for structured output
 // ---------------------------------------------------------------------------
-
-const routeRecommendationSchema = {
-  type: Type.OBJECT,
-  properties: {
-    summary: { type: Type.STRING, description: 'A concise 1-2 sentence summary of the recommendation' },
-    reasoning: { type: Type.STRING, description: 'Detailed explanation of why this route configuration is recommended based on the user data' },
-    routePreferences: {
-      type: Type.OBJECT,
-      properties: {
-        suggestedDistanceKm: { type: Type.NUMBER, description: 'Suggested distance in kilometers' },
-        activityType: { type: Type.STRING, description: 'The activity type' },
-        preferredTerrain: { type: Type.STRING, description: 'Terrain preference: flat, moderate, hilly, or mixed' },
-        suggestedPaceMinPerKm: { type: Type.NUMBER, description: 'Suggested pace in minutes per km, or null if not applicable', nullable: true },
-        avoidHills: { type: Type.BOOLEAN, description: 'Whether to avoid hills' },
-        preferScenic: { type: Type.BOOLEAN, description: 'Whether to prefer scenic routes' },
-        preferShade: { type: Type.BOOLEAN, description: 'Whether to prefer shaded paths' },
-        preferLoop: { type: Type.BOOLEAN, description: 'Whether to prefer loop routes that return to the start' },
-      },
-      required: ['suggestedDistanceKm', 'activityType', 'preferredTerrain', 'suggestedPaceMinPerKm', 'avoidHills', 'preferScenic', 'preferShade', 'preferLoop'],
-    },
-    fitnessInsight: { type: Type.STRING, description: 'A brief fitness insight based on the user activity history' },
-    warnings: {
-      type: Type.ARRAY,
-      items: { type: Type.STRING },
-      description: 'Any health or training warnings',
-    },
-    tips: {
-      type: Type.ARRAY,
-      items: { type: Type.STRING },
-      description: 'Actionable training or route tips',
-    },
-  },
-  required: ['summary', 'reasoning', 'routePreferences', 'fitnessInsight', 'warnings', 'tips'],
-};
-
-const fitnessInsightsSchema = {
-  type: Type.OBJECT,
-  properties: {
-    summary: { type: Type.STRING, description: 'Overall summary of the user fitness status' },
-    weeklyStats: {
-      type: Type.OBJECT,
-      properties: {
-        totalDistanceKm: { type: Type.NUMBER },
-        totalActivities: { type: Type.NUMBER },
-        averagePaceMinPerKm: { type: Type.NUMBER, nullable: true },
-        totalCalories: { type: Type.NUMBER, nullable: true },
-      },
-      required: ['totalDistanceKm', 'totalActivities', 'averagePaceMinPerKm', 'totalCalories'],
-    },
-    trends: { type: Type.STRING, description: 'Description of performance trends' },
-    strengths: {
-      type: Type.ARRAY,
-      items: { type: Type.STRING },
-      description: 'User training strengths',
-    },
-    areasToImprove: {
-      type: Type.ARRAY,
-      items: { type: Type.STRING },
-      description: 'Areas where the user can improve',
-    },
-    nextGoalSuggestion: { type: Type.STRING, description: 'A suggested next goal for the user' },
-    warnings: {
-      type: Type.ARRAY,
-      items: { type: Type.STRING },
-      description: 'Any health or overtraining warnings',
-    },
-  },
-  required: ['summary', 'weeklyStats', 'trends', 'strengths', 'areasToImprove', 'nextGoalSuggestion', 'warnings'],
-};
 
 const routeRecommendationResultValidator = z.object({
   summary: z.string().min(1),
@@ -262,7 +244,6 @@ function buildActivityHistoryContext(activities: ActivitySummary[]): string {
     ];
     if (a.averagePaceMinPerKm !== null) parts.push(`Pace: ${a.averagePaceMinPerKm} min/km`);
     if (a.averageSpeedKmh !== null) parts.push(`Speed: ${a.averageSpeedKmh} km/h`);
-    if (a.averageHeartRate !== null) parts.push(`Avg HR: ${a.averageHeartRate} bpm`);
     if (a.calories !== null) parts.push(`Calories: ${a.calories}`);
     return parts.join(' | ');
   });
@@ -305,6 +286,7 @@ function buildRouteRecommendationPrompt(
   parts.push(buildActivityHistoryContext(activities));
   parts.push('');
   parts.push('Based on the above information, provide a personalized route recommendation. Remember: do NOT invent specific geographic locations or road names. Only suggest route characteristics.');
+  parts.push('Return a JSON object with summary, reasoning, routePreferences (suggestedDistanceKm, activityType, preferredTerrain, suggestedPaceMinPerKm, avoidHills, preferScenic, preferShade, preferLoop), fitnessInsight, warnings, and tips. Use null for suggestedPaceMinPerKm when unknown.');
 
   return parts.join('\n');
 }
@@ -314,6 +296,7 @@ function buildFitnessInsightsPrompt(activities: ActivitySummary[]): string {
 
   parts.push('Analyze the following user activity data and provide fitness insights, trends, strengths, areas to improve, and a suggested next goal.');
   parts.push('Treat weeklyStats as totals for the last 7 calendar days, based only on the dated activities provided. Do not estimate missing measurements.');
+  parts.push('Return a JSON object with summary, weeklyStats (totalDistanceKm, totalActivities, averagePaceMinPerKm, totalCalories), trends, strengths, areasToImprove, nextGoalSuggestion, and warnings. Use null for unavailable pace or calorie totals.');
   parts.push('');
   parts.push(buildActivityHistoryContext(activities));
   parts.push('');
@@ -327,12 +310,12 @@ function parseModelResponse<T>(text: string, validator: z.ZodType<T>): T {
   try {
     value = JSON.parse(text);
   } catch {
-    throw new GeminiServiceError('Gemini returned invalid JSON', 'INVALID_RESPONSE', 502);
+    throw new GroqServiceError('Groq returned invalid JSON', 'INVALID_RESPONSE', 502);
   }
 
   const result = validator.safeParse(value);
   if (!result.success) {
-    throw new GeminiServiceError('Gemini returned data that does not match the expected response format', 'INVALID_RESPONSE', 502);
+    throw new GroqServiceError('Groq returned data that does not match the expected response format', 'INVALID_RESPONSE', 502);
   }
   return result.data;
 }
@@ -391,8 +374,6 @@ export async function getRouteRecommendation(
   request: RouteRecommendationRequest,
   activities: ActivitySummary[],
 ): Promise<RouteRecommendationResult> {
-  const client = getClient();
-
   // Sanitize any free-text input
   if (request.additionalNotes) {
     request.additionalNotes = sanitizeString(request.additionalNotes);
@@ -403,37 +384,16 @@ export async function getRouteRecommendation(
 
   const prompt = buildRouteRecommendationPrompt(request, activities);
 
-  try {
-    const response = await client.models.generateContent({
-      model: MODEL,
-      contents: prompt,
-      config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
-        responseMimeType: 'application/json',
-        responseSchema: routeRecommendationSchema,
-        temperature: 0.7,
-        maxOutputTokens: 2048,
-      },
-    });
-
-    const text = response.text;
-    if (!text) {
-      throw new GeminiServiceError(
-        'Gemini returned an empty response',
-        'EMPTY_RESPONSE',
-        502,
-      );
-    }
-
-    return parseModelResponse(text, routeRecommendationResultValidator);
-  } catch (error) {
-    if (error instanceof GeminiServiceError) throw error;
-    throw handleGeminiError(error);
-  }
+  const text = await generateJson(prompt, {
+    systemInstruction: SYSTEM_INSTRUCTION,
+    temperature: 0.7,
+    maxTokens: 2048,
+  });
+  return parseModelResponse(text, routeRecommendationResultValidator);
 }
 
 /**
- * Ask Gemini to rank already-valid routes. Coordinates, road names, account
+ * Ask Groq to rank already-valid routes. Coordinates, road names, account
  * details, and GPS history are deliberately not sent.
  */
 export async function rankRouteCandidateIds(
@@ -442,7 +402,6 @@ export async function rankRouteCandidateIds(
   preferLoop: boolean,
   candidates: RouteCandidateForRanking[],
 ): Promise<string[]> {
-  const client = getClient();
   const candidateData = candidates.map((candidate) => ({
     id: candidate.id,
     distanceKm: candidate.distanceKm,
@@ -457,48 +416,26 @@ export async function rankRouteCandidateIds(
     JSON.stringify(candidateData),
   ].join('\n');
 
-  try {
-    const response = await client.models.generateContent({
-      model: MODEL,
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            rankedRouteIds: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-            },
-          },
-          required: ['rankedRouteIds'],
-        },
-        temperature: 0,
-        maxOutputTokens: 1024,
-      },
-    });
-    if (!response.text) {
-      throw new GeminiServiceError('Gemini returned an empty ranking', 'EMPTY_RESPONSE', 502);
-    }
-    const parsed = parseModelResponse(response.text, routeCandidateOrderValidator);
-    const expectedIds = new Set(candidates.map((candidate) => candidate.id));
-    const returnedIds = new Set(parsed.rankedRouteIds);
-    if (
-      parsed.rankedRouteIds.length !== candidates.length ||
-      returnedIds.size !== candidates.length ||
-      parsed.rankedRouteIds.some((id) => !expectedIds.has(id))
-    ) {
-      throw new GeminiServiceError(
-        'Gemini returned missing, duplicate, or unknown route identifiers',
-        'INVALID_RESPONSE',
-        502,
-      );
-    }
-    return parsed.rankedRouteIds;
-  } catch (error) {
-    if (error instanceof GeminiServiceError) throw error;
-    throw handleGeminiError(error);
+  const text = await generateJson(prompt, {
+    systemInstruction: 'Rank the given routes by suitability. Return only a JSON object with a rankedRouteIds array containing each supplied ID exactly once.',
+    temperature: 0,
+    maxTokens: 1024,
+  });
+  const parsed = parseModelResponse(text, routeCandidateOrderValidator);
+  const expectedIds = new Set(candidates.map((candidate) => candidate.id));
+  const returnedIds = new Set(parsed.rankedRouteIds);
+  if (
+    parsed.rankedRouteIds.length !== candidates.length ||
+    returnedIds.size !== candidates.length ||
+    parsed.rankedRouteIds.some((id) => !expectedIds.has(id))
+  ) {
+    throw new GroqServiceError(
+      'Groq returned missing, duplicate, or unknown route identifiers',
+      'INVALID_RESPONSE',
+      502,
+    );
   }
+  return parsed.rankedRouteIds;
 }
 
 /**
@@ -507,57 +444,32 @@ export async function rankRouteCandidateIds(
 export async function getFitnessInsights(
   activities: ActivitySummary[],
 ): Promise<FitnessInsightsResult> {
-  const client = getClient();
-
   const prompt = buildFitnessInsightsPrompt(activities);
-
-  try {
-    const response = await client.models.generateContent({
-      model: MODEL,
-      contents: prompt,
-      config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
-        responseMimeType: 'application/json',
-        responseSchema: fitnessInsightsSchema,
-        temperature: 0.7,
-        maxOutputTokens: 2048,
-      },
-    });
-
-    const text = response.text;
-    if (!text) {
-      throw new GeminiServiceError(
-        'Gemini returned an empty response',
-        'EMPTY_RESPONSE',
-        502,
-      );
-    }
-
-    const parsed = parseModelResponse(text, fitnessInsightsResultValidator);
-    return {
-      ...parsed,
-      weeklyStats: calculateWeeklyStats(activities),
-    };
-  } catch (error) {
-    if (error instanceof GeminiServiceError) throw error;
-    throw handleGeminiError(error);
-  }
+  const text = await generateJson(prompt, {
+    systemInstruction: SYSTEM_INSTRUCTION,
+    temperature: 0.7,
+    maxTokens: 2048,
+  });
+  const parsed = parseModelResponse(text, fitnessInsightsResultValidator);
+  return {
+    ...parsed,
+    weeklyStats: calculateWeeklyStats(activities),
+  };
 }
 
 /**
- * Quick connectivity check — returns true if Gemini responds to a trivial prompt.
+ * Quick connectivity check — returns true if Groq responds to a trivial prompt.
  */
 export async function checkHealth(): Promise<{ ok: boolean; model: string; error?: string }> {
   try {
-    const client = getClient();
-    const response = await client.models.generateContent({
-      model: MODEL,
-      contents: 'Respond with exactly: ok',
-      config: { maxOutputTokens: 16 },
+    await generateJson('Respond with a JSON object containing {"status":"ok"}.', {
+      systemInstruction: 'Return only valid JSON.',
+      temperature: 0,
+      maxTokens: 16,
     });
-    return { ok: !!response.text, model: MODEL };
+    return { ok: true, model: MODEL };
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
+    const msg = error instanceof GroqServiceError ? error.message : 'Groq request failed';
     return { ok: false, model: MODEL, error: msg };
   }
 }
@@ -566,61 +478,73 @@ export async function checkHealth(): Promise<{ ok: boolean; model: string; error
 // Error mapping
 // ---------------------------------------------------------------------------
 
-function handleGeminiError(error: unknown): GeminiServiceError {
+function handleGroqError(error: unknown): GroqServiceError {
+  if (error instanceof GroqServiceError) return error;
+
   if (error instanceof SyntaxError) {
-    return new GeminiServiceError(
-      'Failed to parse AI response as JSON',
+    return new GroqServiceError(
+      'Failed to parse Groq response as JSON',
       'INVALID_RESPONSE',
       502,
     );
   }
 
-  const err = error as { status?: number; message?: string; code?: string };
-  const message = err.message || 'Unknown Gemini API error';
-  const status = err.status;
+  const err = isRecord(error) ? error : {};
+  const message = typeof err.message === 'string' ? err.message : 'Unknown Groq API error';
+  const status = typeof err.status === 'number' ? err.status : undefined;
 
   if (status === 401 || status === 403) {
-    return new GeminiServiceError(
-      'Invalid Gemini API key or insufficient permissions',
+    return new GroqServiceError(
+      'Invalid Groq API key or insufficient permissions',
       'AUTH_ERROR',
       500,
     );
   }
 
   if (status === 429) {
-    return new GeminiServiceError(
-      'Gemini API rate limit exceeded — please try again later',
+    return new GroqServiceError(
+      'Groq API rate limit exceeded — please try again later',
       'RATE_LIMIT',
       429,
     );
   }
 
-  if (status === 503 || status === 500) {
-    return new GeminiServiceError(
-      'Gemini API is temporarily unavailable',
+  if (status === 500 || status === 502 || status === 503 || status === 504) {
+    return new GroqServiceError(
+      'Groq API is temporarily unavailable',
       'SERVICE_UNAVAILABLE',
       503,
     );
   }
 
-  if (message.toLowerCase().includes('timeout') || message.toLowerCase().includes('deadline')) {
-    return new GeminiServiceError(
-      'Gemini API request timed out',
+  if (message.toLowerCase().includes('timeout') ||
+      message.toLowerCase().includes('deadline') ||
+      (isRecord(error) && error.name === 'TimeoutError')) {
+    return new GroqServiceError(
+      'Groq API request timed out',
       'TIMEOUT',
       504,
     );
   }
 
   if (message.toLowerCase().includes('fetch failed') || message.toLowerCase().includes('network')) {
-    return new GeminiServiceError(
-      'Network error while contacting Gemini API',
+    return new GroqServiceError(
+      'Network error while contacting Groq API',
       'NETWORK_ERROR',
       503,
     );
   }
 
-  return new GeminiServiceError(
-    `Gemini API error: ${message}`,
+  if (status !== undefined) {
+    return new GroqServiceError(
+      `Groq API returned HTTP ${status}`,
+      'API_ERROR',
+      502,
+    );
+  }
+
+  return new GroqServiceError(
+    `Groq API error: ${message}`,
     'UNKNOWN_ERROR',
     502,
   );

@@ -36,8 +36,6 @@ model Activity {
   targetDistance         Decimal?        @map("target_distance") @db.Decimal(10, 2)
   pace                   Decimal?        @db.Decimal(10, 2)
   speed                  Decimal?        @db.Decimal(10, 2)
-  averageHeartRate       Int?            @map("average_heart_rate")
-  maximumHeartRate       Int?            @map("maximum_heart_rate")
   calories               Decimal?        @db.Decimal(10, 2)
   calorieMetCode         String?         @map("calorie_met_code")
   calorieMetValue        Decimal?        @map("calorie_met_value") @db.Decimal(5, 2)

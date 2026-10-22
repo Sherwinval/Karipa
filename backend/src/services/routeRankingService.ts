@@ -6,7 +6,7 @@ import {
 import {
   rankRouteCandidateIds,
   type RouteCandidateForRanking,
-} from './geminiService.js';
+} from './groqService.js';
 
 export interface RankedRoute extends CandidateRoute {
   targetDistanceKm: number;

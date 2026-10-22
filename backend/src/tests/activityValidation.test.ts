@@ -17,6 +17,20 @@ describe('activity recording-mode validation', () => {
     if (result.success) expect(result.data.recordingMode).toBe('plan_route');
   });
 
+  it('ignores obsolete heart-rate fields', () => {
+    const result = activitySchema.safeParse({
+      ...validActivity,
+      averageHeartRate: 120,
+      maximumHeartRate: 150,
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).not.toHaveProperty('averageHeartRate');
+      expect(result.data).not.toHaveProperty('maximumHeartRate');
+    }
+  });
+
   it('accepts Free Recording without a target or planned route', () => {
     const result = activitySchema.safeParse({
       ...validActivity,

@@ -10,7 +10,7 @@ Karipa is a mobile route-planning and activity-tracking app for walking, jogging
 - View a weekly distance leaderboard.
 - Use metric or imperial units and light or dark appearance.
 
-Route ranking can use Gemini for eligible ties when configured; deterministic ranking is used otherwise. Calorie values are estimates. Activity recording currently requires the app to remain in the foreground; background tracking and offline synchronization are not supported.
+Route ranking can use Groq when configured; deterministic ranking is used otherwise. AI also provides route recommendations and fitness insights. Calorie values are estimates. Activity recording currently requires the app to remain in the foreground; background tracking and offline synchronization are not supported.
 
 ## Repository layout
 
@@ -36,7 +36,7 @@ Create a database with PostGIS enabled. For local setup instructions, see [docs/
 
 ### 2. Configure and start the API
 
-Copy `backend/.env.example` to `backend/.env`, then set the database URLs and a secure `JWT_SECRET`. Configure a reachable Valhalla server using `VALHALLA_BASE_URL`. Gemini ranking is optional; set `GEMINI_API_KEY` to enable it. SMTP settings are optional for email delivery.
+Copy `backend/.env.example` to `backend/.env`, then set the database URLs and a secure `JWT_SECRET`. Configure a reachable Valhalla server using `VALHALLA_BASE_URL`. Groq-powered AI is optional; set `GROQ_API_KEY` to enable it. Without a key, route ranking uses deterministic ordering. SMTP settings are optional for email delivery.
 
 From the repository root, run:
 
