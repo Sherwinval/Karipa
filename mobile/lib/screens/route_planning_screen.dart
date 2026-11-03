@@ -19,6 +19,7 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
   double _targetDistanceKm = 5.0;
   final TextEditingController _customDistanceController =
       TextEditingController();
+  final TextEditingController _routeNotesController = TextEditingController();
   bool _isCustomDistance = false;
 
   bool _avoidMajorRoads = true;
@@ -38,6 +39,7 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
   @override
   void dispose() {
     _customDistanceController.dispose();
+    _routeNotesController.dispose();
     super.dispose();
   }
 
@@ -98,6 +100,7 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
         },
         latitude: position.latitude,
         longitude: position.longitude,
+        additionalNotes: _routeNotesController.text,
       );
 
       if (!mounted) return;
@@ -303,6 +306,18 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                 ),
               ),
               const SizedBox(height: 24),
+              TextField(
+                controller: _routeNotesController,
+                maxLength: 500,
+                maxLines: 2,
+                decoration: InputDecoration(
+                  labelText: 'Additional route preferences',
+                  hintText: 'For example: avoid hills or prefer a quiet loop',
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+              const SizedBox(height: 12),
 
               if (_errorMessage != null)
                 Container(

@@ -44,7 +44,21 @@ class ApiService {
     try {
       final data = jsonDecode(response.body);
       if (data is Map && data['message'] is String) {
-        return data['message'] as String;
+        final details = <String>[data['message'] as String];
+        if (data['suggestions'] is List) {
+          final suggestions = (data['suggestions'] as List)
+              .whereType<String>()
+              .where((suggestion) => suggestion.trim().isNotEmpty)
+              .toList();
+          if (suggestions.isNotEmpty) {
+            details.add('Suggestions: ${suggestions.join('; ')}');
+          }
+        }
+        if (data['preferencesNotInterpreted'] == true) {
+          details.add(
+              'Additional notes could not be applied; selected route switches were used.');
+        }
+        return details.join('\n');
       }
     } on FormatException {
       // Use the status code when the server did not return JSON.
@@ -69,6 +83,7 @@ class ApiService {
     required Map<String, dynamic> preferences,
     required double latitude,
     required double longitude,
+    String? additionalNotes,
   }) async {
     final headers = await _headers();
     late final http.Response response;
@@ -81,6 +96,8 @@ class ApiService {
               'activity': activity.toLowerCase(),
               'targetDistanceKm': targetDistanceKm,
               'preferences': preferences,
+              if (additionalNotes != null && additionalNotes.trim().isNotEmpty)
+                'additionalNotes': additionalNotes.trim(),
               'startLocation': {
                 'latitude': latitude,
                 'longitude': longitude,
@@ -106,12 +123,31 @@ class ApiService {
           final meta = data['meta'] is Map
               ? Map<String, dynamic>.from(data['meta'] as Map)
               : <String, dynamic>{};
+          final unsupportedPreferences = meta['unsupportedPreferences'] is List
+              ? (meta['unsupportedPreferences'] as List)
+                  .whereType<String>()
+                  .toList()
+              : <String>[];
+          final preferenceNotices = <String>[];
+          if (additionalNotes != null &&
+              additionalNotes.trim().isNotEmpty &&
+              meta['notesInterpreted'] != true) {
+            preferenceNotices.add(
+                'Additional notes could not be interpreted; selected route switches were used.');
+          }
+          if (unsupportedPreferences.isNotEmpty) {
+            preferenceNotices.add(
+                'These requests could not be verified from available routing data: ${unsupportedPreferences.join(', ')}.');
+          }
+          final preferenceNotice =
+              preferenceNotices.isEmpty ? null : preferenceNotices.join(' ');
           return (data['routes'] as List)
               .map((r) => PathRoute.fromJson({
                     ...Map<String, dynamic>.from(r as Map),
                     'maximumDistanceDeviationKm':
                         meta['maximumDistanceDeviationKm'],
                     'closeCandidateAvailable': meta['closeCandidateAvailable'],
+                    'preferenceNotice': preferenceNotice,
                   }))
               .toList();
         }

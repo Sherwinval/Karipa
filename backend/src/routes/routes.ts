@@ -2,8 +2,18 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.js';
-import { generateCandidateRoutes, RoutingServiceError } from '../services/routingService.js';
+import {
+  generateCandidateRoutes,
+  getMaximumDistanceDeviationKm,
+  RoutingServiceError,
+  type RoutePreferences,
+} from '../services/routingService.js';
 import { rankCandidateRoutes } from '../services/routeRankingService.js';
+import {
+  explainUnavailableDistance,
+  interpretRoutePreferences,
+  isGroqEnabled,
+} from '../services/groqService.js';
 
 export const routeRouter = Router();
 
@@ -16,7 +26,9 @@ const generateSchema = z.object({
     preferSidewalks: z.boolean().optional(),
     preferLoop: z.boolean().optional(),
     preferCyclingInfrastructure: z.boolean().optional(),
+    avoidHills: z.boolean().optional(),
   }).default({}),
+  additionalNotes: z.string().trim().max(500).optional(),
   startLocation: z.object({
     latitude: z.number().min(-90).max(90),
     longitude: z.number().min(-180).max(180),
@@ -38,7 +50,7 @@ routeRouter.post('/generate', async (req, res) => {
     return;
   }
 
-  const { targetDistanceKm, preferences, startLocation } = parsed.data;
+  const { targetDistanceKm, preferences, startLocation, additionalNotes } = parsed.data;
   const activity = parsed.data.activity ?? parsed.data.activityType;
   if (!activity) {
     res.status(400).json({ success: false, message: 'Select an activity type' });
@@ -46,45 +58,91 @@ routeRouter.post('/generate', async (req, res) => {
   }
 
   try {
-    // 1. Generate candidates via Valhalla routing engine
+    const effectivePreferences: RoutePreferences = { ...preferences };
+    const unsupportedPreferences: string[] = [];
+    let notesInterpreted = false;
+    if (additionalNotes && isGroqEnabled()) {
+      try {
+        const interpretation = await interpretRoutePreferences(additionalNotes);
+        const interpretedPreferences = interpretation.constraints;
+        for (const key of [
+          'avoidMajorRoads',
+          'preferSidewalks',
+          'preferLoop',
+          'preferCyclingInfrastructure',
+          'avoidHills',
+        ] as const) {
+          if (effectivePreferences[key] === undefined && interpretedPreferences[key] !== null) {
+            effectivePreferences[key] = interpretedPreferences[key];
+          }
+        }
+        unsupportedPreferences.push(...interpretation.unsupportedPreferences);
+        notesInterpreted = true;
+      } catch (error) {
+        const errorCode = typeof error === 'object' && error !== null && 'code' in error
+          ? String(error.code)
+          : 'PREFERENCE_INTERPRETATION_FAILED';
+        console.warn(`Groq route preference interpretation unavailable (${errorCode}); using structured preferences only`);
+      }
+    }
+    if (activity !== 'cycling' && effectivePreferences.avoidMajorRoads) {
+      unsupportedPreferences.push(
+        'Avoiding major roads cannot currently be verified for pedestrian routes.',
+      );
+    }
+    if (activity !== 'cycling' && effectivePreferences.preferCyclingInfrastructure) {
+      unsupportedPreferences.push(
+        'Cycling infrastructure preference applies only to cycling routes.',
+      );
+    }
+
+    // Valhalla is the authority for route geometry, access, and distance.
     const candidates = await generateCandidateRoutes(
       activity,
       targetDistanceKm,
-      preferences,
+      effectivePreferences,
       startLocation
     );
 
-    if (candidates.length === 0) {
-      const configuredDeviation = process.env.ROUTE_MAX_DISTANCE_DEVIATION_KM;
-      res.status(404).json({
-        success: false,
-        message: configuredDeviation
-          ? `No valid route was found within the configured ${configuredDeviation} km deviation of the requested ${targetDistanceKm} km. Try again or adjust the target distance.`
-          : 'The routing service did not return any valid routes for this area. Check your connection and try again.',
-        provider: 'valhalla',
-      });
-      return;
-    }
-
-    // 2. Rank only distance-valid candidates deterministically
+    const maximumDistanceDeviationKm = getMaximumDistanceDeviationKm();
     const rankedRoutes = await rankCandidateRoutes(
       activity,
       targetDistanceKm,
-      preferences,
+      effectivePreferences,
       candidates
     );
 
     if (rankedRoutes.length === 0) {
+      let explanation: string | undefined;
+      let suggestions: string[] = [];
+      if (candidates.length > 0 && isGroqEnabled()) {
+        try {
+          const insight = await explainUnavailableDistance(
+            activity,
+            targetDistanceKm,
+            maximumDistanceDeviationKm,
+            candidates.map((candidate) => candidate.distanceKm),
+          );
+          explanation = insight.explanation;
+          suggestions = insight.suggestions;
+        } catch (error) {
+          const errorCode = typeof error === 'object' && error !== null && 'code' in error
+            ? String(error.code)
+            : 'DISTANCE_EXPLANATION_FAILED';
+          console.warn(`Groq distance explanation unavailable (${errorCode}); using deterministic guidance`);
+        }
+      }
       res.status(404).json({
         success: false,
-        message: 'The routing service did not return any valid routes. Check your connection and try again.',
+        message: explanation ??
+          `No valid route was found within ${maximumDistanceDeviationKm} km of your ${targetDistanceKm} km target. Try a nearby distance or change the loop preference.`,
+        suggestions,
+        preferencesNotInterpreted: Boolean(additionalNotes) && !notesInterpreted,
+        unsupportedPreferences,
+        provider: 'valhalla',
       });
       return;
     }
-
-    const maximumDistanceDeviationKm = process.env.ROUTE_MAX_DISTANCE_DEVIATION_KM
-      ? Number(process.env.ROUTE_MAX_DISTANCE_DEVIATION_KM)
-      : null;
     res.json({
       success: true,
       routes: rankedRoutes,
@@ -93,14 +151,14 @@ routeRouter.post('/generate', async (req, res) => {
         activity,
         targetDistanceKm,
         maximumDistanceDeviationKm,
-        closeCandidateAvailable: maximumDistanceDeviationKm === null
-          ? null
-          : rankedRoutes.some((route) => route.absoluteDistanceDeviationKm <= maximumDistanceDeviationKm),
+        closeCandidateAvailable: true,
         rankingSource: rankedRoutes[0].rankingSource,
+        notesInterpreted,
+        unsupportedPreferences,
         startLocation,
       },
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (error instanceof RoutingServiceError) {
       console.error(`Route generation failed (${error.providerStatus ?? error.statusCode})`);
       res.status(error.statusCode).json({
@@ -119,38 +177,15 @@ routeRouter.post('/generate', async (req, res) => {
   }
 });
 
-// Evaluate route features
-routeRouter.post('/evaluate', async (req, res) => {
-  const { routes, targetDistanceKm } = req.body;
-  if (!Array.isArray(routes)) {
-    res.status(400).json({ success: false, message: 'Routes array required' });
-    return;
-  }
-  res.json({ success: true, evaluated: routes });
-});
-
-// Recommend routes
-routeRouter.post('/recommend', async (req, res) => {
-  const { activity, targetDistanceKm, preferences, routes } = req.body;
-  if (!Array.isArray(routes)) {
-    res.status(400).json({ success: false, message: 'Routes array required' });
-    return;
-  }
-
-  const target = Number(targetDistanceKm ?? 5);
-  if (!Number.isFinite(target) || target <= 0) {
-    res.status(400).json({ success: false, message: 'Target distance must be greater than zero km' });
-    return;
-  }
-
-  const ranked = await rankCandidateRoutes(
-    activity || 'running',
-    target,
-    preferences || {},
-    routes
-  );
-  res.json({ success: true, rankedRoutes: ranked });
-});
+for (const endpoint of ['/evaluate', '/recommend']) {
+  routeRouter.post(endpoint, (_req, res) => {
+    res.status(410).json({
+      success: false,
+      message: 'Client-supplied route geometry is no longer accepted. Use POST /api/routes/generate to route and rank candidates through Valhalla.',
+      code: 'VALHALLA_GENERATION_REQUIRED',
+    });
+  });
+}
 
 // Save a selected route to user's saved routes
 routeRouter.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {

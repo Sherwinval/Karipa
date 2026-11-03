@@ -33,6 +33,32 @@ export interface RouteCandidateForRanking {
   distanceKm: number;
   absoluteDeviationKm: number;
   isLoop: boolean;
+  majorRoadRatio?: number;
+  sidewalkRatio?: number;
+  cyclingLaneRatio?: number;
+}
+
+export interface RoutePreferenceInterpretation {
+  constraints: {
+    avoidMajorRoads: boolean | null;
+    preferSidewalks: boolean | null;
+    preferLoop: boolean | null;
+    preferCyclingInfrastructure: boolean | null;
+    avoidHills: boolean | null;
+  };
+  unsupportedPreferences: string[];
+}
+
+export interface RouteCandidateEvaluation {
+  rankedRouteIds: string[];
+  candidateReasons: { routeId: string; reason: string }[];
+  distanceInsight: string;
+}
+
+export interface RouteCandidateAdjustment {
+  additionalScales: number[];
+  explanation: string;
+  suggestions: string[];
 }
 
 export interface RouteRecommendationResult {
@@ -100,9 +126,116 @@ function getApiKey(): string {
   return apiKey;
 }
 
-const MODEL = 'openai/gpt-oss-120b';
+const MODEL = process.env.GROQ_MODEL?.trim() || 'openai/gpt-oss-20b';
 const API_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const REQUEST_TIMEOUT_MS = 30_000;
+const REQUEST_TIMEOUT_MS = 5_000;
+const MAX_RETRIES = 1;
+
+interface GroqUsageMetrics {
+  operations: number;
+  requests: number;
+  successfulRequests: number;
+  failedRequests: number;
+  retries: number;
+  totalLatencyMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  responsesWithTokenUsage: number;
+  rateLimitedRequests: number;
+}
+
+const usageMetrics: GroqUsageMetrics = {
+  operations: 0,
+  requests: 0,
+  successfulRequests: 0,
+  failedRequests: 0,
+  retries: 0,
+  totalLatencyMs: 0,
+  inputTokens: 0,
+  outputTokens: 0,
+  responsesWithTokenUsage: 0,
+  rateLimitedRequests: 0,
+};
+
+export function getGroqUsageMetrics(): GroqUsageMetrics & { averageLatencyMs: number } {
+  return {
+    ...usageMetrics,
+    averageLatencyMs: usageMetrics.operations === 0
+      ? 0
+      : Number((usageMetrics.totalLatencyMs / usageMetrics.operations).toFixed(1)),
+  };
+}
+
+export function isGroqEnabled(): boolean {
+  return process.env.GROQ_ENABLED?.trim().toLowerCase() !== 'false'
+    && Boolean(process.env.GROQ_API_KEY?.trim());
+}
+
+const routePreferenceInterpretationSchema = {
+  type: 'object',
+  properties: {
+    constraints: {
+      type: 'object',
+      properties: {
+        avoidMajorRoads: { type: ['boolean', 'null'] },
+        preferSidewalks: { type: ['boolean', 'null'] },
+        preferLoop: { type: ['boolean', 'null'] },
+        preferCyclingInfrastructure: { type: ['boolean', 'null'] },
+        avoidHills: { type: ['boolean', 'null'] },
+      },
+      required: [
+        'avoidMajorRoads',
+        'preferSidewalks',
+        'preferLoop',
+        'preferCyclingInfrastructure',
+        'avoidHills',
+      ],
+      additionalProperties: false,
+    },
+    unsupportedPreferences: {
+      type: 'array',
+      items: { type: 'string' },
+    },
+  },
+  required: ['constraints', 'unsupportedPreferences'],
+  additionalProperties: false,
+};
+
+const routeCandidateEvaluationSchema = {
+  type: 'object',
+  properties: {
+    rankedRouteIds: { type: 'array', items: { type: 'string' } },
+    candidateReasons: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          routeId: { type: 'string' },
+          reason: { type: 'string' },
+        },
+        required: ['routeId', 'reason'],
+        additionalProperties: false,
+      },
+    },
+    distanceInsight: { type: 'string' },
+  },
+  required: ['rankedRouteIds', 'candidateReasons', 'distanceInsight'],
+  additionalProperties: false,
+};
+
+const candidateAdjustmentSchema = {
+  type: 'object',
+  properties: {
+    additionalScales: {
+      type: 'array',
+      items: { type: 'number', enum: [0.5, 0.9, 1.1, 1.5] },
+    },
+    explanation: { type: 'string' },
+    suggestions: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['additionalScales', 'explanation', 'suggestions'],
+  additionalProperties: false,
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -111,53 +244,127 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 async function generateJson(
   prompt: string,
   options: { temperature: number; maxTokens: number; systemInstruction?: string },
-): Promise<string> {
-  let response: Response;
+  operation: string,
+  schemaName: string,
+  schema: Record<string, unknown>,
+): Promise<{ text: string; inputTokens?: number; outputTokens?: number }> {
+  const startedAt = Date.now();
+  let retryCount = 0;
+  usageMetrics.operations++;
   try {
-    response = await fetch(API_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${getApiKey()}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [
-          ...(options.systemInstruction
-            ? [{ role: 'system', content: options.systemInstruction }]
-            : []),
-          { role: 'user', content: prompt },
-        ],
-        response_format: { type: 'json_object' },
-        temperature: options.temperature,
-        max_tokens: options.maxTokens,
-      }),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
+    if (process.env.GROQ_ENABLED?.trim().toLowerCase() === 'false') {
+      throw new GroqServiceError('Groq assistance is disabled', 'AI_DISABLED', 503);
+    }
+    const apiKey = getApiKey();
+    let response: Response | undefined;
+    while (retryCount <= MAX_RETRIES) {
+      usageMetrics.requests++;
+      try {
+        response = await fetch(API_URL, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: MODEL,
+            messages: [
+              ...(options.systemInstruction
+                ? [{ role: 'system', content: options.systemInstruction }]
+                : []),
+              { role: 'user', content: prompt },
+            ],
+            response_format: {
+              type: 'json_schema',
+              json_schema: { name: schemaName, strict: true, schema },
+            },
+            temperature: options.temperature,
+            max_tokens: options.maxTokens,
+          }),
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        });
+      } catch (error) {
+        const mappedError = handleGroqError(error);
+        if (retryCount < MAX_RETRIES && mappedError.code === 'NETWORK_ERROR') {
+          retryCount++;
+          usageMetrics.retries++;
+          continue;
+        }
+        throw mappedError;
+      }
+
+      if (response.ok || response.status < 500 || retryCount >= MAX_RETRIES) break;
+      retryCount++;
+      usageMetrics.retries++;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+
+    if (!response) {
+      throw new GroqServiceError('Groq did not return a response', 'INVALID_RESPONSE', 502);
+    }
+    if (!response.ok) {
+      if (response.status === 429) usageMetrics.rateLimitedRequests++;
+      throw handleGroqError({ status: response.status });
+    }
+
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch {
+      throw new GroqServiceError('Groq returned an invalid response', 'INVALID_RESPONSE', 502);
+    }
+
+    if (!isRecord(payload) || !Array.isArray(payload.choices)) {
+      throw new GroqServiceError('Groq returned an invalid response', 'INVALID_RESPONSE', 502);
+    }
+    const firstChoice = payload.choices[0];
+    if (!isRecord(firstChoice) || !isRecord(firstChoice.message) ||
+        typeof firstChoice.message.content !== 'string' || !firstChoice.message.content) {
+      throw new GroqServiceError('Groq returned an empty response', 'EMPTY_RESPONSE', 502);
+    }
+
+    const usage = isRecord(payload.usage) ? payload.usage : undefined;
+    const inputTokens = typeof usage?.prompt_tokens === 'number' ? usage.prompt_tokens : undefined;
+    const outputTokens = typeof usage?.completion_tokens === 'number' ? usage.completion_tokens : undefined;
+    usageMetrics.successfulRequests++;
+    if (inputTokens !== undefined && outputTokens !== undefined) {
+      usageMetrics.inputTokens += inputTokens;
+      usageMetrics.outputTokens += outputTokens;
+      usageMetrics.responsesWithTokenUsage++;
+    }
+    const latencyMs = Date.now() - startedAt;
+    usageMetrics.totalLatencyMs += latencyMs;
+    console.info(JSON.stringify({
+      event: 'groq_request',
+      operation,
+      model: MODEL,
+      success: true,
+      latencyMs,
+      retries: retryCount,
+      inputTokens: inputTokens ?? null,
+      outputTokens: outputTokens ?? null,
+    }));
+    return {
+      text: firstChoice.message.content,
+      inputTokens,
+      outputTokens,
+    };
   } catch (error) {
-    throw handleGroqError(error);
+    const groqError = handleGroqError(error);
+    usageMetrics.failedRequests++;
+    const latencyMs = Date.now() - startedAt;
+    usageMetrics.totalLatencyMs += latencyMs;
+    console.warn(JSON.stringify({
+      event: 'groq_request',
+      operation,
+      model: MODEL,
+      success: false,
+      errorCode: groqError.code,
+      latencyMs,
+      retries: retryCount,
+    }));
+    throw groqError;
   }
-
-  if (!response.ok) {
-    throw handleGroqError({ status: response.status });
-  }
-
-  let payload: unknown;
-  try {
-    payload = await response.json();
-  } catch {
-    throw new GroqServiceError('Groq returned an invalid response', 'INVALID_RESPONSE', 502);
-  }
-
-  if (!isRecord(payload) || !Array.isArray(payload.choices)) {
-    throw new GroqServiceError('Groq returned an invalid response', 'INVALID_RESPONSE', 502);
-  }
-  const firstChoice = payload.choices[0];
-  if (!isRecord(firstChoice) || !isRecord(firstChoice.message) ||
-      typeof firstChoice.message.content !== 'string' || !firstChoice.message.content) {
-    throw new GroqServiceError('Groq returned an empty response', 'EMPTY_RESPONSE', 502);
-  }
-  return firstChoice.message.content;
 }
 
 // ---------------------------------------------------------------------------
@@ -197,9 +404,131 @@ const fitnessInsightsResultValidator = z.object({
   warnings: z.array(z.string()),
 });
 
-const routeCandidateOrderValidator = z.object({
-  rankedRouteIds: z.array(z.string().min(1)).min(1),
+const routePreferenceInterpretationValidator = z.object({
+  constraints: z.object({
+    avoidMajorRoads: z.boolean().nullable(),
+    preferSidewalks: z.boolean().nullable(),
+    preferLoop: z.boolean().nullable(),
+    preferCyclingInfrastructure: z.boolean().nullable(),
+    avoidHills: z.boolean().nullable(),
+  }),
+  unsupportedPreferences: z.array(z.string().min(1).max(100)).max(8),
 });
+
+const routeCandidateEvaluationValidator = z.object({
+  rankedRouteIds: z.array(z.string().min(1)).min(1).max(8),
+  candidateReasons: z.array(z.object({
+    routeId: z.string().min(1),
+    reason: z.string().min(1).max(240),
+  })).max(8),
+  distanceInsight: z.string().min(1).max(500),
+});
+
+const candidateAdjustmentValidator = z.object({
+  additionalScales: z.array(
+    z.number().refine((scale) => [0.5, 0.9, 1.1, 1.5].includes(scale)),
+  ).max(2),
+  explanation: z.string().min(1).max(500),
+  suggestions: z.array(z.string().min(1).max(200)).max(4),
+}).superRefine((value, context) => {
+  if (new Set(value.additionalScales).size !== value.additionalScales.length) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Candidate scales must be unique',
+      path: ['additionalScales'],
+    });
+  }
+});
+
+export interface UnavailableDistanceExplanation {
+  explanation: string;
+  suggestions: string[];
+}
+
+const unavailableDistanceSchema = {
+  type: 'object',
+  properties: {
+    explanation: { type: 'string' },
+    suggestions: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['explanation', 'suggestions'],
+  additionalProperties: false,
+};
+
+const unavailableDistanceValidator = z.object({
+  explanation: z.string().min(1).max(500),
+  suggestions: z.array(z.string().min(1).max(200)).max(4),
+});
+
+const routeRecommendationJsonSchema = {
+  type: 'object',
+  properties: {
+    summary: { type: 'string' },
+    reasoning: { type: 'string' },
+    routePreferences: {
+      type: 'object',
+      properties: {
+        suggestedDistanceKm: { type: 'number' },
+        activityType: { type: 'string', enum: ['walking', 'jogging', 'running', 'cycling'] },
+        preferredTerrain: { type: 'string' },
+        suggestedPaceMinPerKm: { type: ['number', 'null'] },
+        avoidHills: { type: 'boolean' },
+        preferScenic: { type: 'boolean' },
+        preferShade: { type: 'boolean' },
+        preferLoop: { type: 'boolean' },
+      },
+      required: [
+        'suggestedDistanceKm',
+        'activityType',
+        'preferredTerrain',
+        'suggestedPaceMinPerKm',
+        'avoidHills',
+        'preferScenic',
+        'preferShade',
+        'preferLoop',
+      ],
+      additionalProperties: false,
+    },
+    fitnessInsight: { type: 'string' },
+    warnings: { type: 'array', items: { type: 'string' } },
+    tips: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['summary', 'reasoning', 'routePreferences', 'fitnessInsight', 'warnings', 'tips'],
+  additionalProperties: false,
+};
+
+const fitnessInsightsJsonSchema = {
+  type: 'object',
+  properties: {
+    summary: { type: 'string' },
+    weeklyStats: {
+      type: 'object',
+      properties: {
+        totalDistanceKm: { type: 'number' },
+        totalActivities: { type: 'integer' },
+        averagePaceMinPerKm: { type: ['number', 'null'] },
+        totalCalories: { type: ['number', 'null'] },
+      },
+      required: ['totalDistanceKm', 'totalActivities', 'averagePaceMinPerKm', 'totalCalories'],
+      additionalProperties: false,
+    },
+    trends: { type: 'string' },
+    strengths: { type: 'array', items: { type: 'string' } },
+    areasToImprove: { type: 'array', items: { type: 'string' } },
+    nextGoalSuggestion: { type: 'string' },
+    warnings: { type: 'array', items: { type: 'string' } },
+  },
+  required: [
+    'summary',
+    'weeklyStats',
+    'trends',
+    'strengths',
+    'areasToImprove',
+    'nextGoalSuggestion',
+    'warnings',
+  ],
+  additionalProperties: false,
+};
 
 // ---------------------------------------------------------------------------
 // System instruction
@@ -384,44 +713,80 @@ export async function getRouteRecommendation(
 
   const prompt = buildRouteRecommendationPrompt(request, activities);
 
-  const text = await generateJson(prompt, {
+  const { text } = await generateJson(prompt, {
     systemInstruction: SYSTEM_INSTRUCTION,
     temperature: 0.7,
     maxTokens: 2048,
-  });
+  }, 'route_recommendation', 'route_recommendation', routeRecommendationJsonSchema);
   return parseModelResponse(text, routeRecommendationResultValidator);
 }
 
 /**
- * Ask Groq to rank already-valid routes. Coordinates, road names, account
- * details, and GPS history are deliberately not sent.
+ * Interpret free-text into a bounded set of routing controls. Valhalla and
+ * backend validation remain authoritative.
  */
-export async function rankRouteCandidateIds(
+export async function interpretRoutePreferences(
+  additionalNotes: string,
+): Promise<RoutePreferenceInterpretation> {
+  const prompt = [
+    'Translate the user notes into supported routing constraints only.',
+    'Supported fields: avoidMajorRoads, preferSidewalks, preferLoop, preferCyclingInfrastructure, avoidHills.',
+    'Set a field true or false only when clearly requested; use null when the user did not address it.',
+    'List requests that cannot be reliably represented in unsupportedPreferences.',
+    'Never generate coordinates, roads, place names, or claims about safety, lighting, or scenery.',
+    `User notes: ${sanitizeString(additionalNotes, 500)}`,
+  ].join('\n');
+  const { text } = await generateJson(prompt, {
+    systemInstruction: 'Interpret the user intent conservatively. Return only the required JSON object.',
+    temperature: 0,
+    maxTokens: 400,
+  }, 'route_preference_interpretation', 'route_preference_interpretation', routePreferenceInterpretationSchema);
+  return parseModelResponse(text, routePreferenceInterpretationValidator);
+}
+
+export interface RoutePreferencesForEvaluation {
+  avoidMajorRoads?: boolean;
+  preferSidewalks?: boolean;
+  preferLoop?: boolean;
+  preferCyclingInfrastructure?: boolean;
+  avoidHills?: boolean;
+}
+
+/**
+ * Evaluate only already-validated Valhalla routes. Geometry and sensitive
+ * location data are deliberately excluded from the prompt.
+ */
+export async function evaluateRouteCandidates(
   activityType: string,
   targetDistanceKm: number,
-  preferLoop: boolean,
+  preferences: RoutePreferencesForEvaluation,
   candidates: RouteCandidateForRanking[],
-): Promise<string[]> {
+): Promise<RouteCandidateEvaluation> {
   const candidateData = candidates.map((candidate) => ({
     id: candidate.id,
     distanceKm: candidate.distanceKm,
     absoluteDeviationKm: candidate.absoluteDeviationKm,
     isLoop: candidate.isLoop,
+    majorRoadRatio: candidate.majorRoadRatio ?? null,
+    sidewalkRatio: candidate.sidewalkRatio ?? null,
+    cyclingLaneRatio: candidate.cyclingLaneRatio ?? null,
   }));
   const prompt = [
-    `Order these already-validated ${activityType} route identifiers.`,
-    `Requested target: ${targetDistanceKm} km. Prefer a loop: ${preferLoop}.`,
-    'Only use the supplied candidate IDs and facts. Return every ID exactly once.',
-    'Rank every candidate using its distance from the requested target and whether it matches the loop preference. Favor a closer route unless another candidate has a compelling stated advantage.',
+    `Evaluate these already-validated ${activityType} route candidates.`,
+    `Requested target: ${targetDistanceKm} km.`,
+    `Preferences: ${JSON.stringify(preferences)}.`,
+    'Rank every candidate exactly once, prioritizing distance deviation and then supplied preference measurements.',
+    'Give every candidate a concise evidence-based reason and provide an overall distance insight.',
+    'Do not infer road quality, safety, scenery, shade, accessibility, or a feature absent from the supplied facts.',
     JSON.stringify(candidateData),
   ].join('\n');
 
-  const text = await generateJson(prompt, {
-    systemInstruction: 'Rank the given routes by suitability. Return only a JSON object with a rankedRouteIds array containing each supplied ID exactly once.',
+  const { text } = await generateJson(prompt, {
+    systemInstruction: 'Rank and explain only the supplied valid candidates. Return the required JSON object.',
     temperature: 0,
-    maxTokens: 1024,
-  });
-  const parsed = parseModelResponse(text, routeCandidateOrderValidator);
+    maxTokens: 700,
+  }, 'route_candidate_evaluation', 'route_candidate_evaluation', routeCandidateEvaluationSchema);
+  const parsed = parseModelResponse(text, routeCandidateEvaluationValidator);
   const expectedIds = new Set(candidates.map((candidate) => candidate.id));
   const returnedIds = new Set(parsed.rankedRouteIds);
   if (
@@ -435,7 +800,88 @@ export async function rankRouteCandidateIds(
       502,
     );
   }
-  return parsed.rankedRouteIds;
+  const reasonIds = new Set(parsed.candidateReasons.map((item) => item.routeId));
+  if (
+    parsed.candidateReasons.length !== candidates.length ||
+    reasonIds.size !== candidates.length ||
+    parsed.candidateReasons.some((item) => !expectedIds.has(item.routeId))
+  ) {
+    usageMetrics.failedRequests++;
+    throw new GroqServiceError(
+      'Groq returned missing, duplicate, or unknown route explanations',
+      'INVALID_RESPONSE',
+      502,
+    );
+  }
+  return parsed;
+}
+
+export async function suggestCandidateAdjustments(
+  activityType: string,
+  targetDistanceKm: number,
+  maximumDeviationKm: number,
+  candidateDistancesKm: number[],
+): Promise<RouteCandidateAdjustment> {
+  const prompt = [
+    `The Valhalla-backed ${activityType} generator found no candidate within ${maximumDeviationKm} km of the ${targetDistanceKm} km target.`,
+    `Actual returned candidate distances in km: ${JSON.stringify(candidateDistancesKm.slice(0, 8))}.`,
+    'Choose zero, one, or two additional route construction scale factors from exactly 0.5, 0.9, 1.1, and 1.5.',
+    'Select scales that may produce a closer network-routed route. These are only waypoint-generation hints; Valhalla will calculate and validate every route.',
+    'Explain the mismatch without claiming what caused it, and suggest practical alternatives if the target remains unavailable.',
+  ].join('\n');
+  const { text } = await generateJson(prompt, {
+    systemInstruction: 'Choose only from allowed scale values. Never create coordinates or claim a route exists. Return concise JSON.',
+    temperature: 0,
+    maxTokens: 500,
+  }, 'candidate_adjustment', 'candidate_adjustment', candidateAdjustmentSchema);
+  return parseModelResponse(text, candidateAdjustmentValidator);
+}
+
+export async function explainUnavailableDistance(
+  activityType: string,
+  targetDistanceKm: number,
+  maximumDeviationKm: number,
+  candidateDistancesKm: number[],
+): Promise<UnavailableDistanceExplanation> {
+  const prompt = [
+    `The Valhalla-backed ${activityType} generator found no candidate within ${maximumDeviationKm} km of the ${targetDistanceKm} km target.`,
+    `Actual returned candidate distances in km: ${JSON.stringify(candidateDistancesKm.slice(0, 8))}.`,
+    'Explain why no candidate satisfied the target distance tolerance using only the actual candidate distances provided.',
+    'Do not invent geographic facts, road names, or locations.',
+    'Provide concise practical suggestions for the user (e.g. adjust target distance or loop preference).',
+  ].join('\n');
+
+  const { text } = await generateJson(
+    prompt,
+    {
+      systemInstruction: 'Explain distance unavailability concisely based only on measured distances. Return JSON.',
+      temperature: 0,
+      maxTokens: 400,
+    },
+    'unavailable_distance_explanation',
+    'unavailable_distance_explanation',
+    unavailableDistanceSchema,
+  );
+
+  return parseModelResponse(text, unavailableDistanceValidator);
+}
+
+/**
+ * Compatibility helper for callers that need only route IDs.
+ */
+export async function rankRouteCandidateIds(
+  activityType: string,
+  targetDistanceKm: number,
+  preferLoop: boolean,
+  candidates: RouteCandidateForRanking[],
+): Promise<string[]> {
+  const evaluation = await evaluateRouteCandidates(
+    activityType,
+    targetDistanceKm,
+    { preferLoop },
+    candidates,
+  );
+  return evaluation.rankedRouteIds;
 }
 
 /**
@@ -445,11 +891,11 @@ export async function getFitnessInsights(
   activities: ActivitySummary[],
 ): Promise<FitnessInsightsResult> {
   const prompt = buildFitnessInsightsPrompt(activities);
-  const text = await generateJson(prompt, {
+  const { text } = await generateJson(prompt, {
     systemInstruction: SYSTEM_INSTRUCTION,
     temperature: 0.7,
     maxTokens: 2048,
-  });
+  }, 'fitness_insights', 'fitness_insights', fitnessInsightsJsonSchema);
   const parsed = parseModelResponse(text, fitnessInsightsResultValidator);
   return {
     ...parsed,
@@ -466,6 +912,11 @@ export async function checkHealth(): Promise<{ ok: boolean; model: string; error
       systemInstruction: 'Return only valid JSON.',
       temperature: 0,
       maxTokens: 16,
+    }, 'health_check', 'health_check', {
+      type: 'object',
+      properties: { status: { type: 'string', enum: ['ok'] } },
+      required: ['status'],
+      additionalProperties: false,
     });
     return { ok: true, model: MODEL };
   } catch (error) {

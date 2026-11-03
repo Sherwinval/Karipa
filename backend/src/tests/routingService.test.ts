@@ -1,10 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { rankCandidateRoutes } from '../services/routeRankingService.js';
+import { rankCandidateRoutes, type RouteCandidateRanker } from '../services/routeRankingService.js';
 import {
   generateCandidateRoutes,
   validateAndDeduplicateCandidateRoutes,
   type CandidateRoute,
 } from '../services/routingService.js';
+import type {
+  RouteCandidateEvaluation,
+  RouteCandidateForRanking,
+  RoutePreferencesForEvaluation,
+} from '../services/groqService.js';
 
 let geometryCounter = 0;
 const originalMaximumDeviation = process.env.ROUTE_MAX_DISTANCE_DEVIATION_KM;
@@ -28,6 +33,66 @@ afterEach(() => {
   } else {
     process.env.VALHALLA_BASE_URL = originalValhallaBaseUrl;
   }
+});
+
+it('rejects route geometry that conflicts with the authoritative Valhalla distance', async () => {
+  process.env.VALHALLA_BASE_URL = 'http://localhost:8002';
+  vi.stubGlobal('fetch', vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body));
+    return mockRouteResponse(1, body.locations[0].lat, body.locations[0].lon).json().then((payload) =>
+      new Response(JSON.stringify({
+        ...payload,
+        trip: {
+          ...payload.trip,
+          summary: { length: 10, time: 900 },
+          legs: [{ ...payload.trip.legs[0], summary: { length: 10, time: 900 } }],
+        },
+      }), { status: 200 })
+    );
+  }));
+
+  await expect(generateCandidateRoutes(
+    'walking',
+    5,
+    {},
+    { latitude: 14.5995, longitude: 120.9842 },
+  )).rejects.toMatchObject({
+    name: 'RoutingServiceError',
+    providerStatus: 'DISTANCE_GEOMETRY_MISMATCH',
+  });
+});
+
+it('rejects fabricated route geometry that is materially inconsistent with Valhalla summary values', async () => {
+  process.env.VALHALLA_BASE_URL = 'http://localhost:8002';
+  vi.stubGlobal('fetch', vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body));
+    const startLat = body.locations[0].lat;
+    const startLon = body.locations[0].lon;
+    const shortShape = encodePolyline([
+      [startLat, startLon],
+      [startLat + 0.002, startLon],
+      [startLat + 0.003, startLon + 0.002],
+      [startLat, startLon + 0.002],
+      [startLat, startLon],
+    ]);
+
+    return new Response(JSON.stringify({
+      trip: {
+        legs: [{ shape: shortShape, summary: { length: 5, time: 900 } }],
+        summary: { length: 5, time: 900 },
+      },
+    }), { status: 200 });
+  }));
+
+  await expect(generateCandidateRoutes(
+    'walking',
+    5,
+    {},
+    { latitude: 14.5995, longitude: 120.9842 },
+  )).rejects.toMatchObject({
+    name: 'RoutingServiceError',
+    providerStatus: 'DISTANCE_GEOMETRY_MISMATCH',
+  });
 });
 
 function route(
@@ -63,13 +128,61 @@ function route(
   };
 }
 
+function encodePolyline(points: [number, number][]): string {
+  let previousLat = 0;
+  let previousLon = 0;
+  let encoded = '';
+  for (const [lat, lon] of points) {
+    const scaledLat = Math.round(lat * 1e6);
+    const scaledLon = Math.round(lon * 1e6);
+    for (const delta of [scaledLat - previousLat, scaledLon - previousLon]) {
+      let value = delta < 0 ? ~(delta << 1) : delta << 1;
+      while (value >= 0x20) {
+        encoded += String.fromCharCode((0x20 | (value & 0x1f)) + 63);
+        value >>= 5;
+      }
+      encoded += String.fromCharCode(value + 63);
+    }
+    previousLat = scaledLat;
+    previousLon = scaledLon;
+  }
+  return encoded;
+}
+
+function mockRouteResponse(distanceKm: number, lat: number, lon: number): Response {
+  const sideKm = distanceKm / 4;
+  const latOffset = sideKm / 111.32;
+  const lonOffset = sideKm / (111.32 * Math.cos(lat * Math.PI / 180));
+  const shape = encodePolyline([
+    [lat, lon],
+    [lat + latOffset, lon],
+    [lat + latOffset, lon + lonOffset],
+    [lat, lon + lonOffset],
+    [lat, lon],
+  ]);
+  return new Response(JSON.stringify({
+    trip: {
+      legs: [{ shape, summary: { length: distanceKm, time: 900 } }],
+      summary: { length: distanceKm, time: 900 },
+    },
+  }), { status: 200 });
+}
+
+function candidateEvaluation(ids: string[]): RouteCandidateEvaluation {
+  return {
+    rankedRouteIds: ids,
+    candidateReasons: ids.map((routeId) => ({ routeId, reason: `Reason for ${routeId}.` })),
+    distanceInsight: 'Candidates are compared by their routed distances.',
+  };
+}
+
 describe('route distance validation', () => {
-  it('does not apply an unapproved default distance tolerance', () => {
+  it('applies the documented default distance tolerance', () => {
     delete process.env.ROUTE_MAX_DISTANCE_DEVIATION_KM;
     const candidates = [route('near', 10.1), route('far', 17)];
 
     expect(validateAndDeduplicateCandidateRoutes(candidates, 10).map((item) => item.id))
-      .toEqual(['near', 'far']);
+      .toEqual(['near']);
   });
 
   it('applies only an explicitly configured distance tolerance', () => {
@@ -81,7 +194,7 @@ describe('route distance validation', () => {
   });
 
   it('uses the routing-engine distance instead of the supplied display distance', () => {
-    delete process.env.ROUTE_MAX_DISTANCE_DEVIATION_KM;
+    process.env.ROUTE_MAX_DISTANCE_DEVIATION_KM = '6';
     const candidate = { ...route('authoritative', 8), distanceKm: 13 };
 
     expect(validateAndDeduplicateCandidateRoutes([candidate], 10)[0].distanceKm).toBe(8);
@@ -102,15 +215,33 @@ describe('route distance validation', () => {
       ...route('stationary', 5),
       geometry: { type: 'LineString' as const, coordinates: [[120, 14], [120, 14]] as [number, number][] },
     };
+    const duplicatePoint = {
+      ...route('duplicate-point', 5),
+      geometry: {
+        type: 'LineString' as const,
+        coordinates: [[120, 14], [120, 14], [120.02, 14]] as [number, number][],
+      },
+    };
+    const largeJump = {
+      ...route('large-jump', 5),
+      geometry: { type: 'LineString' as const, coordinates: [[120, 14], [121, 14]] as [number, number][] },
+    };
 
-    expect(validateAndDeduplicateCandidateRoutes([valid, duplicate, malformed, stationary], 5).map((item) => item.id))
+    expect(validateAndDeduplicateCandidateRoutes([
+      valid,
+      duplicate,
+      malformed,
+      stationary,
+      duplicatePoint,
+      largeJump,
+    ], 5).map((item) => item.id))
       .toEqual(['valid']);
   });
 
-  it('handles short targets and filters routes only under an explicit tolerance', () => {
+  it('handles short targets and filters routes using the configured tolerance', () => {
     delete process.env.ROUTE_MAX_DISTANCE_DEVIATION_KM;
     expect(validateAndDeduplicateCandidateRoutes([route('short', 0.4)], 0.5)).toHaveLength(1);
-    expect(validateAndDeduplicateCandidateRoutes([route('far', 17.99)], 20)).toHaveLength(1);
+    expect(validateAndDeduplicateCandidateRoutes([route('far', 17.99)], 20)).toHaveLength(0);
 
     process.env.ROUTE_MAX_DISTANCE_DEVIATION_KM = '1';
     expect(validateAndDeduplicateCandidateRoutes([route('outside', 17.99)], 20)).toEqual([]);
@@ -131,15 +262,8 @@ describe('Valhalla routing API generation', () => {
     const requests: { url: string; init: RequestInit }[] = [];
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       requests.push({ url: String(input), init: init ?? {} });
-      return new Response(JSON.stringify({
-        trip: {
-          legs: [{
-            shape: '??o}@o}@',
-            summary: { length: 4.8, time: 900 },
-          }],
-          summary: { length: 4.8, time: 900 },
-        },
-      }), { status: 200 });
+      const requestBody = JSON.parse(String(init?.body));
+      return mockRouteResponse(4.8, requestBody.locations[0].lat, requestBody.locations[0].lon);
     }));
 
     const candidates = await generateCandidateRoutes(
@@ -152,9 +276,11 @@ describe('Valhalla routing API generation', () => {
     expect(requests).toHaveLength(6);
     expect(requests[0].url).toBe('http://localhost:8002/route');
     expect(JSON.parse(String(requests[0].init.body)).costing).toBe('pedestrian');
+    expect(JSON.parse(String(requests[0].init.body)).locations[0].radius).toBe(150);
     expect(candidates).toHaveLength(1);
     expect(candidates[0].distanceMeters).toBe(4800);
-    expect(candidates[0].geometry.coordinates).toEqual([[0, 0], [0.001, 0.001]]);
+    expect(candidates[0].geometry.coordinates[0]).toEqual([120.9842, 14.5995]);
+    expect(candidates[0].geometry.coordinates.at(-1)).toEqual([120.9842, 14.5995]);
   });
 
   it('uses Valhalla bicycle mode without silently falling back to another provider', async () => {
@@ -162,25 +288,24 @@ describe('Valhalla routing API generation', () => {
     let requestCount = 0;
     vi.stubGlobal('fetch', vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
       requestCount++;
-      expect(JSON.parse(String(init?.body)).costing).toBe('bicycle');
-      return new Response(JSON.stringify({
-        trip: {
-          legs: [{
-            shape: '??o}@o}@',
-            summary: { length: 5.0, time: 900 },
-          }],
-          summary: { length: 5.0, time: 900 },
-        },
-      }), { status: 200 });
+      const requestBody = JSON.parse(String(init?.body));
+      expect(requestBody.costing).toBe('bicycle');
+      return mockRouteResponse(5, requestBody.locations[0].lat, requestBody.locations[0].lon);
     }));
 
     await generateCandidateRoutes(
       'cycling',
       5,
-      {},
+      { avoidMajorRoads: true, preferCyclingInfrastructure: true, avoidHills: true },
       { latitude: 14.5995, longitude: 120.9842 },
     );
     expect(requestCount).toBe(6);
+    const firstBody = JSON.parse(String((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body));
+    expect(firstBody.costing_options.bicycle).toMatchObject({
+      use_hills: 0.2,
+      use_roads: 0.2,
+      use_trails: 0.7,
+    });
   });
 
   it('returns an explicit no-coverage error when Valhalla has no bicycle route', async () => {
@@ -198,6 +323,41 @@ describe('Valhalla routing API generation', () => {
     )).rejects.toThrow('No cycling route is available for this area.');
   });
 
+  it('rejects a malformed successful Valhalla response instead of returning an empty success', async () => {
+    process.env.VALHALLA_BASE_URL = 'http://localhost:8002';
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      trip: { legs: [] },
+    }), { status: 200 })));
+
+    await expect(generateCandidateRoutes(
+      'walking',
+      5,
+      {},
+      { latitude: 14.5995, longitude: 120.9842 },
+    )).rejects.toMatchObject({
+      name: 'RoutingServiceError',
+      providerStatus: 'INVALID_RESPONSE',
+    });
+  });
+
+  it('turns Valhalla timeouts into explicit routing errors', async () => {
+    process.env.VALHALLA_BASE_URL = 'http://localhost:8002';
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new DOMException('Request aborted', 'AbortError');
+    }));
+
+    await expect(generateCandidateRoutes(
+      'walking',
+      5,
+      {},
+      { latitude: 14.5995, longitude: 120.9842 },
+    )).rejects.toMatchObject({
+      name: 'RoutingServiceError',
+      statusCode: 504,
+      providerStatus: 'TIMEOUT',
+    });
+  });
+
   it('requires a server-side VALHALLA_BASE_URL configuration', async () => {
     delete process.env.VALHALLA_BASE_URL;
     await expect(generateCandidateRoutes(
@@ -213,7 +373,7 @@ describe('route ranking', () => {
   it('ranks by distance before preferences without excluding valid routes by default', async () => {
     process.env.AI_ROUTE_RANKING_ENABLED = 'false';
     const closest = route('closest', 9.9, { isLoop: false, majorRoadRatio: 0.9 });
-    const preferredButFarther = route('preferred', 11.4, { isLoop: true, majorRoadRatio: 0 });
+    const preferredButFarther = route('preferred', 10.4, { isLoop: true, majorRoadRatio: 0 });
     const outOfRange = route('excluded', 12.01);
 
     const ranked = await rankCandidateRoutes(
@@ -223,7 +383,7 @@ describe('route ranking', () => {
       [preferredButFarther, outOfRange, closest]
     );
 
-    expect(ranked.map((item) => item.id)).toEqual(['closest', 'preferred', 'excluded']);
+    expect(ranked.map((item) => item.id)).toEqual(['closest', 'preferred']);
     expect(ranked[0].distanceKm).toBeCloseTo(9.9);
     expect(ranked[0].absoluteDistanceDeviationKm).toBeCloseTo(0.1);
     expect(ranked[0].percentageDistanceDeviation).toBeCloseTo(1);
@@ -245,13 +405,13 @@ describe('route ranking', () => {
 
   it('uses AI to rank all validated routes and labels the ranking source', async () => {
     process.env.AI_ROUTE_RANKING_ENABLED = 'true';
-    const routes = [route('alpha', 5), route('beta', 6)];
+    const routes = [route('alpha', 5), route('beta', 5.02)];
     const aiRanker = vi.fn(async (
       _activity: string,
       _targetDistance: number,
-      _preferLoop: boolean,
-      _candidates: { id: string; distanceKm: number; absoluteDeviationKm: number; isLoop: boolean }[],
-    ) => ['beta', 'alpha']);
+      _preferences: RoutePreferencesForEvaluation,
+      _candidates: RouteCandidateForRanking[],
+    ) => candidateEvaluation(['beta', 'alpha']));
     const ranked = await rankCandidateRoutes(
       'running',
       5,
@@ -272,33 +432,33 @@ describe('route ranking', () => {
       'running',
       5,
       {},
-      [route('alpha', 5), route('beta', 5)],
-      async () => ['beta', 'alpha'],
+      [route('alpha', 5), route('beta', 5.02)],
+      async () => candidateEvaluation(['beta', 'alpha']),
     );
 
     expect(ranked.map(({ id }) => id)).toEqual(['beta', 'alpha']);
     expect(ranked.every(({ rankingSource }) => rankingSource === 'ai_assisted')).toBe(true);
   });
 
-  it('sends all valid routes to AI even when their distance scores differ', async () => {
+  it('lets AI reorder only distance-close candidates, keeping larger deviations distance-first', async () => {
     delete process.env.AI_ROUTE_RANKING_ENABLED;
     const aiRanker = vi.fn(async (
       _activity: string,
       _targetDistance: number,
-      _preferLoop: boolean,
-      _candidates: { id: string; distanceKm: number; absoluteDeviationKm: number; isLoop: boolean }[],
-    ) => ['far', 'near']);
+      _preferences: RoutePreferencesForEvaluation,
+      _candidates: RouteCandidateForRanking[],
+    ) => candidateEvaluation(['farther', 'nearby', 'nearest']));
     const ranked = await rankCandidateRoutes(
       'running',
       5,
       {},
-      [route('near', 5), route('far', 6)],
+      [route('nearest', 5), route('nearby', 5.02), route('farther', 5.2)],
       aiRanker,
     );
 
     expect(aiRanker).toHaveBeenCalledTimes(1);
-    expect(aiRanker.mock.calls[0][3].map(({ id }) => id)).toEqual(['near', 'far']);
-    expect(ranked.map(({ id }) => id)).toEqual(['far', 'near']);
+    expect(aiRanker.mock.calls[0][3].map(({ id }) => id)).toEqual(['nearest', 'nearby', 'farther']);
+    expect(ranked.map(({ id }) => id)).toEqual(['nearby', 'nearest', 'farther']);
     expect(ranked.every(({ rankingSource }) => rankingSource === 'ai_assisted')).toBe(true);
   });
 
@@ -312,7 +472,7 @@ describe('route ranking', () => {
       [route('alpha', 5), route('beta', 5)],
       async () => {
         aiCalled = true;
-        return ['beta', 'alpha'];
+        return candidateEvaluation(['beta', 'alpha']);
       },
     );
 
@@ -321,12 +481,28 @@ describe('route ranking', () => {
     expect(ranked.every(({ rankingSource }) => rankingSource === 'deterministic_fallback')).toBe(true);
   });
 
-  it.each([
+  it('uses deterministic ranking when Groq is unavailable', async () => {
+    process.env.AI_ROUTE_RANKING_ENABLED = 'true';
+    delete process.env.GROQ_API_KEY;
+    const ranked = await rankCandidateRoutes(
+      'running',
+      5,
+      {},
+      [route('alpha', 5), route('beta', 5.02)],
+    );
+
+    expect(ranked.map(({ id }) => id)).toEqual(['alpha', 'beta']);
+    expect(ranked.every(({ rankingSource }) => rankingSource === 'deterministic_fallback')).toBe(true);
+  });
+
+  const failingRankers: [string, RouteCandidateRanker][] = [
     ['throws', async () => { throw new Error('service unavailable'); }],
-    ['returns an unknown identifier', async () => ['missing', 'alpha']],
-    ['returns duplicate identifiers', async () => ['alpha', 'alpha']],
-    ['omits a candidate', async () => ['alpha']],
-  ])('uses deterministic fallback when AI %s', async (_scenario, aiRanker) => {
+    ['returns an unknown identifier', async () => candidateEvaluation(['missing', 'alpha'])],
+    ['returns duplicate identifiers', async () => candidateEvaluation(['alpha', 'alpha'])],
+    ['omits a candidate', async () => candidateEvaluation(['alpha'])],
+  ];
+
+  it.each(failingRankers)('uses deterministic fallback when AI %s', async (_scenario, aiRanker) => {
     process.env.AI_ROUTE_RANKING_ENABLED = 'true';
     const routes = [route('alpha', 5), route('beta', 5)];
     const ranked = await rankCandidateRoutes('running', 5, {}, routes, aiRanker);

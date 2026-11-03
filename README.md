@@ -10,7 +10,11 @@ Karipa is a mobile route-planning and activity-tracking app for walking, jogging
 - View a weekly distance leaderboard.
 - Use metric or imperial units and light or dark appearance.
 
-Route ranking can use Groq when configured; deterministic ranking is used otherwise. AI also provides route recommendations and fitness insights. Calorie values are estimates. Activity recording currently requires the app to remain in the foreground; background tracking and offline synchronization are not supported.
+Route candidates use Valhalla's OSM routing graph for road-following geometry and authoritative distance. The backend rejects routes farther than 0.5 km from the requested target by default; set `ROUTE_MAX_DISTANCE_DEVIATION_KM` to a positive value to change the tolerance. Valhalla applies supported activity-specific costing options, but OSM coverage and preference tags can be incomplete. Candidate geometry supplied directly by a client is rejected; use `POST /api/routes/generate` so geometry and distance are verified against Valhalla.
+
+Groq is optional and runs server-side. The backend uses `openai/gpt-oss-20b` by default for structured preference interpretation, validated-candidate evaluation, and distance guidance; set `GROQ_MODEL` to change it, `GROQ_ENABLED=false` to disable all Groq assistance, or `AI_ROUTE_RANKING_ENABLED=false` to disable candidate evaluation only. Groq requests have a 5-second timeout and at most one retry on transient network/server failures. Invalid output, unavailable service, and missing configuration fall back to deterministic routing and ranking. The backend logs request latency, retries, errors, and reported token usage without logging prompts or credentials. Route geometry, access, and distance always come from Valhalla; the app never receives model-generated coordinates.
+
+The Groq model page documents a 131,072-token context window and approximate throughput of 1,000 tokens/second for GPT-OSS 20B. Groq's public rate-limit table lists Developer-plan limits of 30 RPM, 1,000 RPD, 8,000 TPM, and 200,000 TPD for this model; the exact organization limits are available in the Groq account's Limits page and can differ. Calorie values are estimates. Activity recording currently requires the app to remain in the foreground; background tracking and offline synchronization are not supported.
 
 ## Repository layout
 
@@ -36,7 +40,7 @@ Create a database with PostGIS enabled. For local setup instructions, see [docs/
 
 ### 2. Configure and start the API
 
-Copy `backend/.env.example` to `backend/.env`, then set the database URLs and a secure `JWT_SECRET`. Configure a reachable Valhalla server using `VALHALLA_BASE_URL`. Groq-powered AI is optional; set `GROQ_API_KEY` to enable it. Without a key, route ranking uses deterministic ordering. SMTP settings are optional for email delivery.
+Copy `backend/.env.example` to `backend/.env`, then set the database URLs and a secure `JWT_SECRET`. Configure a reachable Valhalla server using `VALHALLA_BASE_URL`. Groq-powered assistance is optional; set `GROQ_API_KEY` to enable it. Without a key, free-text notes are not interpreted and route ranking uses deterministic ordering. SMTP settings are optional for email delivery.
 
 From the repository root, run:
 

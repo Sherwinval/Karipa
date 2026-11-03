@@ -121,30 +121,51 @@ class RecommendedRoutesScreen extends StatelessWidget {
     final firstRoute = routes.isEmpty ? null : routes.first;
     final threshold = firstRoute?.maximumDistanceDeviationKm;
     final rankingMessage = firstRoute?.rankingSource == 'ai_assisted'
-        ? 'AI ranked valid routes using distance from the target and the loop preference.'
-        : 'Deterministic fallback ranking was used. AI did not supply a valid ranking or is not enabled; route validity and actual distance take priority.';
+        ? 'AI explanations and preference signals can break ties between routes within 0.05 km of the closest match.'
+        : 'Deterministic ranking was used. Route validity and actual distance take priority.';
     final thresholdMessage = threshold == null
-        ? firstRoute?.rankingSource == 'ai_assisted'
-            ? 'No maximum distance deviation is configured; all valid routes are considered, with their distance differences shown.'
-            : 'No approved maximum distance deviation is configured. Routes are ordered by their actual distance difference; no tolerance is assumed.'
+        ? 'No distance tolerance was provided by the route service.'
         : firstRoute!.closeCandidateAvailable == true
-            ? 'At least one route is within the configured ${units.formatDistance(threshold)} deviation.'
-            : 'No route is within the configured ${units.formatDistance(threshold)} deviation. The closest valid routes are shown as alternatives.';
+            ? 'Only routes within ${units.formatDistance(threshold)} of the target are shown.'
+            : 'No route is within ${units.formatDistance(threshold)} of the target.';
 
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainer,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Theme.of(context).colorScheme.outline),
-      ),
-      child: Text(
-        '$rankingMessage $thresholdMessage',
-        style: TextStyle(
-          fontSize: 13,
-          color: Theme.of(context).colorScheme.onSurface,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainer,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Theme.of(context).colorScheme.outline),
+          ),
+          child: Text(
+            '$rankingMessage $thresholdMessage',
+            style: TextStyle(
+              fontSize: 13,
+              color: Theme.of(context).colorScheme.onSurface,
+            ),
+          ),
         ),
-      ),
+        if (firstRoute?.preferenceNotice != null) ...[
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainer,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Theme.of(context).colorScheme.outline),
+            ),
+            child: Text(
+              firstRoute!.preferenceNotice!,
+              style: TextStyle(
+                fontSize: 13,
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 

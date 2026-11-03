@@ -18,6 +18,7 @@ class PathRoute {
   final String suitability;
   final String matchLabel;
   final String reasoning;
+  final String? preferenceNotice;
   final List<LatLng> coordinates;
   final Map<String, dynamic> features;
   final Map<String, dynamic> rawJson;
@@ -40,6 +41,7 @@ class PathRoute {
     required this.suitability,
     required this.matchLabel,
     required this.reasoning,
+    this.preferenceNotice,
     required this.coordinates,
     required this.features,
     required this.rawJson,
@@ -85,6 +87,7 @@ class PathRoute {
       suitability: json['suitability'] ?? 'Good match',
       matchLabel: json['matchLabel'] ?? 'Recommended',
       reasoning: json['reasoning'] ?? 'Optimal for activity',
+      preferenceNotice: json['preferenceNotice'] as String?,
       coordinates: coords,
       features: (json['features'] as Map<String, dynamic>?) ?? {},
       rawJson: json,
