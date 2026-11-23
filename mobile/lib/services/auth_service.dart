@@ -1,17 +1,18 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
+import '../config/api_config.dart';
 
 class AuthService extends ChangeNotifier {
-  String get baseUrl => '${ApiService.baseUrl}/auth';
-  
   bool _isAuthenticated = false;
   bool _isGuest = false;
   String? _token;
   String? _userId;
   String? _name;
+  late final Future<void> initialized;
 
   bool get isAuthenticated => _isAuthenticated;
   bool get isGuest => _isGuest;
@@ -20,7 +21,7 @@ class AuthService extends ChangeNotifier {
   String? get name => _name;
 
   AuthService() {
-    _loadAuthStatus();
+    initialized = _loadAuthStatus();
   }
 
   Future<void> _loadAuthStatus() async {
@@ -60,15 +61,35 @@ class AuthService extends ChangeNotifier {
 
   Future<Map<String, dynamic>> login(String email, String password) async {
     try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/login'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'email': email, 'password': password}),
+      final response = await ApiConfig.send(
+        '/auth/login',
+        (uri) => http.post(
+          uri,
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'email': email, 'password': password}),
+        ),
+        timeout: const Duration(seconds: 15),
       );
 
-      final data = jsonDecode(response.body);
+      final dynamic data;
+      try {
+        data = jsonDecode(response.body);
+      } on FormatException {
+        return {
+          'success': false,
+          'message':
+              'The login service returned an unexpected response (HTTP ${response.statusCode}). Check that the API URL and backend are available.',
+        };
+      }
 
-      if (response.statusCode == 200 && data['success']) {
+      if (data is! Map) {
+        return {
+          'success': false,
+          'message': 'The login service returned an invalid response.',
+        };
+      }
+
+      if (response.statusCode == 200 && data['success'] == true) {
         _token = data['token'];
         _userId = data['userId'];
         _name = data['name'];
@@ -78,7 +99,19 @@ class AuthService extends ChangeNotifier {
         notifyListeners();
         return {'success': true};
       }
-      return {'success': false, 'message': data['message'], 'needsVerification': data['needsVerification']};
+      return {
+        'success': false,
+        'message': data['message'],
+        'needsVerification': data['needsVerification']
+      };
+    } on ApiDiscoveryException catch (error) {
+      return {'success': false, 'message': error.message};
+    } on TimeoutException {
+      return {
+        'success': false,
+        'message':
+            'Login timed out. Check your internet connection and confirm the backend and Cloudflare Tunnel are running.',
+      };
     } catch (e) {
       return {'success': false, 'message': 'Network error occurred'};
     }
@@ -92,20 +125,28 @@ class AuthService extends ChangeNotifier {
     double? weightKg,
   }) async {
     try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/register'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'name': name,
-          'email': email,
-          'password': password,
-          if (heightCm != null) 'heightCm': heightCm,
-          if (weightKg != null) 'weightKg': weightKg,
-        }),
+      final response = await ApiConfig.send(
+        '/auth/register',
+        (uri) => http.post(
+          uri,
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'name': name,
+            'email': email,
+            'password': password,
+            if (heightCm != null) 'heightCm': heightCm,
+            if (weightKg != null) 'weightKg': weightKg,
+          }),
+        ),
       );
 
       final data = jsonDecode(response.body);
-      return {'success': data['success'], 'message': data['message'] ?? 'Registration failed'};
+      return {
+        'success': data['success'],
+        'message': data['message'] ?? 'Registration failed'
+      };
+    } on ApiDiscoveryException catch (error) {
+      return {'success': false, 'message': error.message};
     } catch (e) {
       return {'success': false, 'message': 'Network error occurred'};
     }
@@ -113,10 +154,13 @@ class AuthService extends ChangeNotifier {
 
   Future<Map<String, dynamic>> verifyOtp(String email, String otp) async {
     try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/verify-otp'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'email': email, 'otp': otp}),
+      final response = await ApiConfig.send(
+        '/auth/verify-otp',
+        (uri) => http.post(
+          uri,
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'email': email, 'otp': otp}),
+        ),
       );
 
       final data = jsonDecode(response.body);
@@ -131,7 +175,12 @@ class AuthService extends ChangeNotifier {
         notifyListeners();
         return {'success': true};
       }
-      return {'success': false, 'message': data['message'] ?? 'Verification failed'};
+      return {
+        'success': false,
+        'message': data['message'] ?? 'Verification failed'
+      };
+    } on ApiDiscoveryException catch (error) {
+      return {'success': false, 'message': error.message};
     } catch (e) {
       return {'success': false, 'message': 'Network error occurred'};
     }
@@ -139,13 +188,21 @@ class AuthService extends ChangeNotifier {
 
   Future<Map<String, dynamic>> resendOtp(String email) async {
     try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/resend-otp'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'email': email}),
+      final response = await ApiConfig.send(
+        '/auth/resend-otp',
+        (uri) => http.post(
+          uri,
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'email': email}),
+        ),
       );
       final data = jsonDecode(response.body);
-      return {'success': data['success'], 'message': data['message'] ?? 'Failed to resend OTP'};
+      return {
+        'success': data['success'],
+        'message': data['message'] ?? 'Failed to resend OTP'
+      };
+    } on ApiDiscoveryException catch (error) {
+      return {'success': false, 'message': error.message};
     } catch (e) {
       return {'success': false, 'message': 'Network error occurred'};
     }
@@ -167,6 +224,17 @@ class AuthService extends ChangeNotifier {
     _token = null;
     _userId = null;
     _name = null;
+    await _saveAuthStatus();
+    notifyListeners();
+  }
+
+  Future<void> updateProfileName(String name) async {
+    final profile = await ApiService.updateProfileName(name);
+    final savedName = profile['name'];
+    if (savedName is! String || savedName.trim().isEmpty) {
+      throw Exception('The server returned an invalid profile name');
+    }
+    _name = savedName;
     await _saveAuthStatus();
     notifyListeners();
   }

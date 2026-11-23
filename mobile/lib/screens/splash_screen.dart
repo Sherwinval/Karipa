@@ -31,10 +31,13 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _checkSession() async {
-    await Future.delayed(const Duration(milliseconds: 1600));
+    final auth = Provider.of<AuthService>(context, listen: false);
+    await Future.wait([
+      Future<void>.delayed(const Duration(milliseconds: 1600)),
+      auth.initialized,
+    ]);
     if (!mounted) return;
 
-    final auth = Provider.of<AuthService>(context, listen: false);
     if (auth.isAuthenticated || auth.isGuest) {
       Navigator.pushReplacementNamed(context, '/home');
     } else {

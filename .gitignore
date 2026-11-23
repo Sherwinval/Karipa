@@ -11,6 +11,8 @@ Thumbs.db
 # Node
 node_modules/
 backend/node_modules/
+backend/.tunnel-url
+backend/.dev-tunnel.lock
 
 # Flutter
 mobile/.dart_tool/

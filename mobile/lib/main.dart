@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:geolocator/geolocator.dart';
@@ -6,6 +8,7 @@ import 'package:latlong2/latlong.dart';
 import 'models/route_model.dart';
 import 'models/activity_model.dart';
 import 'services/auth_service.dart';
+import 'config/api_config.dart';
 
 import 'screens/splash_screen.dart';
 import 'screens/login_screen.dart';
@@ -30,6 +33,7 @@ import 'services/unit_preferences.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  unawaited(ApiConfig.initialize());
   runApp(
     MultiProvider(
       providers: [

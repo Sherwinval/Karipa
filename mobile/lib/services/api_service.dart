@@ -1,27 +1,16 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../config/api_config.dart';
 import '../models/route_model.dart';
 import '../models/activity_model.dart';
 
 class ApiService {
-  static const _configuredBaseUrl = String.fromEnvironment('API_BASE_URL');
   static const _localActivitiesKey = 'guestActivities';
 
-  static String get baseUrl {
-    final configuredBaseUrl = _configuredBaseUrl.trim();
-    if (configuredBaseUrl.isNotEmpty) {
-      return configuredBaseUrl.replaceFirst(RegExp(r'/+$'), '');
-    }
-    if (kIsWeb) return 'http://localhost:3000/api';
-    try {
-      if (Platform.isAndroid) return 'http://10.0.2.2:3000/api';
-    } catch (_) {}
-    return 'http://localhost:3000/api';
-  }
+  static String get baseUrl => ApiConfig.baseUrl;
 
   static Future<String?> _getToken() async {
     final prefs = await SharedPreferences.getInstance();
@@ -88,23 +77,25 @@ class ApiService {
     final headers = await _headers();
     late final http.Response response;
     try {
-      response = await http
-          .post(
-            Uri.parse('$baseUrl/routes/generate'),
-            headers: headers,
-            body: jsonEncode({
-              'activity': activity.toLowerCase(),
-              'targetDistanceKm': targetDistanceKm,
-              'preferences': preferences,
-              if (additionalNotes != null && additionalNotes.trim().isNotEmpty)
-                'additionalNotes': additionalNotes.trim(),
-              'startLocation': {
-                'latitude': latitude,
-                'longitude': longitude,
-              },
-            }),
-          )
-          .timeout(const Duration(seconds: 30));
+      response = await ApiConfig.send(
+        '/routes/generate',
+        (uri) => http.post(
+          uri,
+          headers: headers,
+          body: jsonEncode({
+            'activity': activity.toLowerCase(),
+            'targetDistanceKm': targetDistanceKm,
+            'preferences': preferences,
+            if (additionalNotes != null && additionalNotes.trim().isNotEmpty)
+              'additionalNotes': additionalNotes.trim(),
+            'startLocation': {
+              'latitude': latitude,
+              'longitude': longitude,
+            },
+          }),
+        ),
+        timeout: const Duration(seconds: 30),
+      );
     } on http.ClientException {
       throw Exception(
           'Unable to connect to the route service. Check your internet connection and retry.');
@@ -168,12 +159,14 @@ class ApiService {
       return {'heightCm': null, 'weightKg': null};
     }
 
-    final response = await http
-        .get(
-          Uri.parse('$baseUrl/auth/profile'),
-          headers: await _headers(),
-        )
-        .timeout(const Duration(seconds: 20));
+    final response = await ApiConfig.send(
+      '/auth/profile',
+      (uri) async => http.get(
+        uri,
+        headers: await _headers(),
+      ),
+      timeout: const Duration(seconds: 20),
+    );
     if (response.statusCode != 200) {
       throw Exception(
           _responseMessage(response, 'Failed to load profile measurements'));
@@ -194,16 +187,72 @@ class ApiService {
       throw Exception('Sign in to save profile measurements.');
     }
 
-    final response = await http
-        .patch(
-          Uri.parse('$baseUrl/auth/profile'),
-          headers: await _headers(),
-          body: jsonEncode({'heightCm': heightCm, 'weightKg': weightKg}),
-        )
-        .timeout(const Duration(seconds: 20));
+    final response = await ApiConfig.send(
+      '/auth/profile',
+      (uri) async => http.patch(
+        uri,
+        headers: await _headers(),
+        body: jsonEncode({'heightCm': heightCm, 'weightKg': weightKg}),
+      ),
+      timeout: const Duration(seconds: 20),
+    );
     if (response.statusCode != 200) {
       throw Exception(
           _responseMessage(response, 'Failed to save profile measurements'));
+    }
+    final data = jsonDecode(response.body);
+    if (data is! Map || data['success'] != true || data['profile'] is! Map) {
+      throw Exception('The server returned an invalid profile response');
+    }
+    return Map<String, dynamic>.from(data['profile'] as Map);
+  }
+
+  static Future<Map<String, dynamic>> updateProfileName(String name) async {
+    final token = await _getToken();
+    if (token == null || token.isEmpty) {
+      throw Exception('Sign in to save your profile name.');
+    }
+
+    final response = await ApiConfig.send(
+      '/auth/profile',
+      (uri) async => http.patch(
+        uri,
+        headers: await _headers(),
+        body: jsonEncode({'name': name}),
+      ),
+      timeout: const Duration(seconds: 20),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(
+          _responseMessage(response, 'Failed to save profile name'));
+    }
+    final data = jsonDecode(response.body);
+    if (data is! Map || data['success'] != true || data['profile'] is! Map) {
+      throw Exception('The server returned an invalid profile response');
+    }
+    return Map<String, dynamic>.from(data['profile'] as Map);
+  }
+
+  static Future<Map<String, dynamic>> updateProfilePhoto(
+    String photoData,
+  ) async {
+    final token = await _getToken();
+    if (token == null || token.isEmpty) {
+      throw Exception('Sign in to save your profile photo.');
+    }
+
+    final response = await ApiConfig.send(
+      '/auth/profile',
+      (uri) async => http.patch(
+        uri,
+        headers: await _headers(),
+        body: jsonEncode({'photoData': photoData}),
+      ),
+      timeout: const Duration(seconds: 30),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(
+          _responseMessage(response, 'Failed to save profile photo'));
     }
     final data = jsonDecode(response.body);
     if (data is! Map || data['success'] != true || data['profile'] is! Map) {
@@ -218,18 +267,20 @@ class ApiService {
     if (token == null || token.isEmpty) return false;
 
     final headers = await _headers();
-    final response = await http
-        .post(
-          Uri.parse('$baseUrl/routes'),
-          headers: headers,
-          body: jsonEncode({
-            'activityType': route.activityType,
-            'distanceKm': route.distanceKm,
-            'durationSeconds': route.durationSeconds,
-            'score': route.score,
-          }),
-        )
-        .timeout(const Duration(seconds: 30));
+    final response = await ApiConfig.send(
+      '/routes',
+      (uri) => http.post(
+        uri,
+        headers: headers,
+        body: jsonEncode({
+          'activityType': route.activityType,
+          'distanceKm': route.distanceKm,
+          'durationSeconds': route.durationSeconds,
+          'score': route.score,
+        }),
+      ),
+      timeout: const Duration(seconds: 30),
+    );
     return response.statusCode == 201;
   }
 
@@ -239,9 +290,9 @@ class ApiService {
     if (token == null || token.isEmpty) return _getLocalActivities();
 
     final headers = await _headers();
-    final response = await http.get(
-      Uri.parse('$baseUrl/activities'),
-      headers: headers,
+    final response = await ApiConfig.send(
+      '/activities',
+      (uri) => http.get(uri, headers: headers),
     );
 
     if (response.statusCode != 200) {
@@ -264,12 +315,11 @@ class ApiService {
       throw Exception('Sign in to view the weekly leaderboard.');
     }
 
-    final response = await http
-        .get(
-          Uri.parse('$baseUrl/activities/leaderboard/weekly'),
-          headers: await _headers(),
-        )
-        .timeout(const Duration(seconds: 20));
+    final response = await ApiConfig.send(
+      '/activities/leaderboard/weekly',
+      (uri) async => http.get(uri, headers: await _headers()),
+      timeout: const Duration(seconds: 20),
+    );
     if (response.statusCode != 200) {
       throw Exception(_responseMessage(response, 'Failed to load leaderboard'));
     }
@@ -287,9 +337,9 @@ class ApiService {
     if (token == null || token.isEmpty) return null;
 
     final headers = await _headers();
-    final response = await http.get(
-      Uri.parse('$baseUrl/activities/$id'),
-      headers: headers,
+    final response = await ApiConfig.send(
+      '/activities/$id',
+      (uri) => http.get(uri, headers: headers),
     );
 
     if (response.statusCode == 200) {
@@ -318,9 +368,9 @@ class ApiService {
     if (token == null || token.isEmpty) return false;
 
     final headers = await _headers();
-    final response = await http.delete(
-      Uri.parse('$baseUrl/activities/$id'),
-      headers: headers,
+    final response = await ApiConfig.send(
+      '/activities/$id',
+      (uri) => http.delete(uri, headers: headers),
     );
     return response.statusCode == 200;
   }
@@ -389,34 +439,36 @@ class ApiService {
     }
 
     final headers = await _headers();
-    final response = await http
-        .post(
-          Uri.parse('$baseUrl/activities'),
-          headers: headers,
-          body: jsonEncode({
-            'activityType': activityType.toLowerCase(),
-            'recordingMode': recordingMode,
-            'distanceMeters': distanceMeters,
-            'durationSeconds': durationSeconds,
-            'activeDurationSeconds': durationSeconds,
-            'totalElapsedSeconds': totalElapsedSeconds ?? durationSeconds,
-            'targetDistanceMeters': targetDistanceMeters,
-            'averagePaceSecondsPerKm': averagePaceSecondsPerKm,
-            'averageSpeedKmh': averageSpeedKmh,
-            'calories': calories,
-            'calorieMetCode': calorieMetCode,
-            'calorieMetValue': calorieMetValue,
-            'calorieWeightKg': calorieWeightKg,
-            'calorieDurationMinutes': calorieDurationMinutes,
-            'calorieMethodVersion': calorieMethodVersion,
-            'idempotencyKey': idempotencyKey,
-            'startedAt': startedAt.toUtc().toIso8601String(),
-            'completedAt': completedAt.toUtc().toIso8601String(),
-            'gpsData': gpsData,
-            'routeData': routeData,
-          }),
-        )
-        .timeout(const Duration(seconds: 30));
+    final response = await ApiConfig.send(
+      '/activities',
+      (uri) => http.post(
+        uri,
+        headers: headers,
+        body: jsonEncode({
+          'activityType': activityType.toLowerCase(),
+          'recordingMode': recordingMode,
+          'distanceMeters': distanceMeters,
+          'durationSeconds': durationSeconds,
+          'activeDurationSeconds': durationSeconds,
+          'totalElapsedSeconds': totalElapsedSeconds ?? durationSeconds,
+          'targetDistanceMeters': targetDistanceMeters,
+          'averagePaceSecondsPerKm': averagePaceSecondsPerKm,
+          'averageSpeedKmh': averageSpeedKmh,
+          'calories': calories,
+          'calorieMetCode': calorieMetCode,
+          'calorieMetValue': calorieMetValue,
+          'calorieWeightKg': calorieWeightKg,
+          'calorieDurationMinutes': calorieDurationMinutes,
+          'calorieMethodVersion': calorieMethodVersion,
+          'idempotencyKey': idempotencyKey,
+          'startedAt': startedAt.toUtc().toIso8601String(),
+          'completedAt': completedAt.toUtc().toIso8601String(),
+          'gpsData': gpsData,
+          'routeData': routeData,
+        }),
+      ),
+      timeout: const Duration(seconds: 30),
+    );
 
     if (response.statusCode == 201 || response.statusCode == 200) {
       try {

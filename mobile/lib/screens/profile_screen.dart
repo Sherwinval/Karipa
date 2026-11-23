@@ -1,4 +1,8 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../theme/design_tokens.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
@@ -28,14 +32,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
   double? _draftWeightKg;
   UnitSystem? _renderedUnitSystem;
   String? _profileError;
+  final _imagePicker = ImagePicker();
+  Uint8List? _profilePhotoBytes;
+  bool _photoSaving = false;
 
   String _formatMeasurement(double? value, {required int decimals}) {
     if (value == null) return '';
     final fixed = value.toStringAsFixed(decimals);
     if (fixed.contains('.')) {
-      final trimmed = fixed
-          .replaceAll(RegExp(r'0+$'), '')
-          .replaceAll(RegExp(r'\.$'), '');
+      final trimmed =
+          fixed.replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '');
       return trimmed;
     }
     return fixed;
@@ -51,6 +57,73 @@ class _ProfileScreenState extends State<ProfileScreen> {
       decimals: 1,
     );
     _renderedUnitSystem = units.system;
+  }
+
+  Future<void> _editProfileName(AuthService authService) async {
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (_) => _EditProfileNameDialog(
+        initialName: authService.name ?? '',
+        onSave: authService.updateProfileName,
+      ),
+    );
+    if (saved == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profile name updated.')),
+      );
+    }
+  }
+
+  Future<void> _changeProfilePhoto() async {
+    try {
+      final image = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 512,
+        maxHeight: 512,
+        imageQuality: 80,
+      );
+      if (image == null || !mounted) return;
+
+      final bytes = await image.readAsBytes();
+      if (bytes.length > 2500000) {
+        throw Exception('Choose a photo smaller than 2.5 MB.');
+      }
+
+      final extension = image.name.split('.').last.toLowerCase();
+      final mimeType = image.mimeType ??
+          switch (extension) {
+            'png' => 'image/png',
+            'webp' => 'image/webp',
+            _ => 'image/jpeg',
+          };
+      if (!{'image/jpeg', 'image/png', 'image/webp'}.contains(mimeType)) {
+        throw Exception('Choose a JPEG, PNG, or WebP image.');
+      }
+      final photoData = 'data:$mimeType;base64,${base64Encode(bytes)}';
+
+      setState(() => _photoSaving = true);
+      final profile = await ApiService.updateProfilePhoto(photoData);
+      final savedPhotoData = profile['photoData'];
+      if (savedPhotoData is! String || !savedPhotoData.contains(',')) {
+        throw Exception('The server returned an invalid profile photo.');
+      }
+      if (!mounted) return;
+      setState(() {
+        _profilePhotoBytes = base64Decode(savedPhotoData.split(',').last);
+        _photoSaving = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profile photo updated.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _photoSaving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.toString().replaceFirst('Exception: ', '')),
+        ),
+      );
+    }
   }
 
   @override
@@ -76,6 +149,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _savedWeight = profile['weightKg']?.toString() ?? '';
       _draftHeightCm = double.tryParse(_savedHeight);
       _draftWeightKg = double.tryParse(_savedWeight);
+      final photoData = profile['photoData'];
+      if (photoData is String && photoData.contains(',')) {
+        _profilePhotoBytes = base64Decode(photoData.split(',').last);
+      }
       if (mounted) {
         final units = context.read<UnitPreferences>();
         _syncControllersToDraft(units);
@@ -213,30 +290,86 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               child: Column(
                 children: [
-                  Container(
-                    width: 80,
-                    height: 80,
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [KaripaPalette.coral, KaripaPalette.coral],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
+                  Tooltip(
+                    message: 'Change profile photo',
+                    child: GestureDetector(
+                      onTap: authService.isAuthenticated && !_photoSaving
+                          ? _changeProfilePhoto
+                          : null,
+                      child: Stack(
+                        children: [
+                          Container(
+                            width: 80,
+                            height: 80,
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [
+                                  KaripaPalette.coral,
+                                  KaripaPalette.coral
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              shape: BoxShape.circle,
+                              image: _profilePhotoBytes == null
+                                  ? null
+                                  : DecorationImage(
+                                      image: MemoryImage(_profilePhotoBytes!),
+                                      fit: BoxFit.cover,
+                                    ),
+                            ),
+                            child: _profilePhotoBytes == null
+                                ? const Icon(Icons.person,
+                                    size: 44, color: KaripaPalette.midnight)
+                                : null,
+                          ),
+                          if (authService.isAuthenticated)
+                            Positioned(
+                              right: 0,
+                              bottom: 0,
+                              child: CircleAvatar(
+                                radius: 15,
+                                backgroundColor: KaripaPalette.coral,
+                                child: _photoSaving
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                            strokeWidth: 2),
+                                      )
+                                    : const Icon(Icons.camera_alt,
+                                        size: 16,
+                                        color: KaripaPalette.midnight),
+                              ),
+                            ),
+                        ],
                       ),
-                      shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.person,
-                        size: 44, color: KaripaPalette.midnight),
                   ),
                   const SizedBox(height: 16),
-                  Text(
-                    authService.isGuest
-                        ? 'Guest Runner'
-                        : (authService.name ?? 'Karipa Athlete'),
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                      color: Theme.of(context).colorScheme.onSurface,
-                    ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          authService.isGuest
+                              ? 'Guest Runner'
+                              : (authService.name ?? 'Karipa Athlete'),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.onSurface,
+                          ),
+                        ),
+                      ),
+                      if (authService.isAuthenticated)
+                        IconButton(
+                          tooltip: 'Edit profile name',
+                          onPressed: () => _editProfileName(authService),
+                          icon: const Icon(Icons.edit_outlined, size: 18),
+                        ),
+                    ],
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -563,9 +696,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       final parsed = double.tryParse(value.trim());
                       _draftHeightCm = parsed == null
                           ? null
-                          : context
-                              .read<UnitPreferences>()
-                              .heightToCm(parsed);
+                          : context.read<UnitPreferences>().heightToCm(parsed);
                     },
                     decoration: InputDecoration(
                       labelText: 'Height (${units.heightUnit})',
@@ -587,9 +718,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       final parsed = double.tryParse(value.trim());
                       _draftWeightKg = parsed == null
                           ? null
-                          : context
-                              .read<UnitPreferences>()
-                              .weightToKg(parsed);
+                          : context.read<UnitPreferences>().weightToKg(parsed);
                     },
                     decoration: InputDecoration(
                       labelText: 'Weight (${units.weightUnit})',
@@ -689,5 +818,102 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return 'Enter a positive value in $unit.';
     }
     return null;
+  }
+}
+
+class _EditProfileNameDialog extends StatefulWidget {
+  const _EditProfileNameDialog({
+    required this.initialName,
+    required this.onSave,
+  });
+
+  final String initialName;
+  final Future<void> Function(String name) onSave;
+
+  @override
+  State<_EditProfileNameDialog> createState() => _EditProfileNameDialogState();
+}
+
+class _EditProfileNameDialogState extends State<_EditProfileNameDialog> {
+  late final TextEditingController _controller;
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialName);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final name = _controller.text.trim();
+    if (name.isEmpty) {
+      setState(() => _error = 'Enter a name.');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await widget.onSave(name);
+      if (mounted) Navigator.pop(context, true);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = error.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Edit profile name'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: _controller,
+            autofocus: true,
+            maxLength: 80,
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(
+              labelText: 'Name',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          if (_error != null)
+            Text(
+              _error!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: _saving ? null : _save,
+          child: _saving
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('Save'),
+        ),
+      ],
+    );
   }
 }

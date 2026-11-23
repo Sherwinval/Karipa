@@ -27,6 +27,35 @@ describe('optional registration measurements', () => {
 });
 
 describe('optional profile measurement validation', () => {
+  it('accepts a non-empty profile name', () => {
+    expect(profileUpdateSchema.safeParse({ name: '  Alex Santos  ' }).success).toBe(true);
+    expect(profileUpdateSchema.safeParse({ name: 'Alex', heightCm: 170 }).success).toBe(true);
+  });
+
+  it('rejects empty or overly long profile names', () => {
+    expect(profileUpdateSchema.safeParse({ name: '   ' }).success).toBe(false);
+    expect(profileUpdateSchema.safeParse({ name: 'A'.repeat(81) }).success).toBe(false);
+  });
+
+  it('accepts supported profile photos and rejects invalid photo data', () => {
+    expect(
+      profileUpdateSchema.safeParse({
+        photoData: 'data:image/jpeg;base64,aGVsbG8=',
+      }).success,
+    ).toBe(true);
+    expect(profileUpdateSchema.safeParse({ photoData: null }).success).toBe(true);
+    expect(
+      profileUpdateSchema.safeParse({
+        photoData: 'data:image/svg+xml;base64,PHN2Zz4=',
+      }).success,
+    ).toBe(false);
+    expect(
+      profileUpdateSchema.safeParse({
+        photoData: `data:image/png;base64,${'a'.repeat(3_500_001)}`,
+      }).success,
+    ).toBe(false);
+  });
+
   it('accepts independently optional positive centimeter and kilogram values', () => {
     expect(profileUpdateSchema.safeParse({ heightCm: 170 }).success).toBe(true);
     expect(profileUpdateSchema.safeParse({ weightKg: 65 }).success).toBe(true);

@@ -4,13 +4,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "node scripts/dev-with-tunnel.mjs",
+    "dev:server": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
     "migrate": "prisma migrate dev",
     "prisma:generate": "prisma generate",
     "verify:crud": "tsx src/scripts/verify-crud.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:dev-tunnel": "node --test scripts/dev-with-tunnel.node-test.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

@@ -52,7 +52,11 @@ npx prisma migrate dev
 npm run dev
 ```
 
-The API listens at `http://localhost:3000`. Check `http://localhost:3000/api/health` and `http://localhost:3000/api/health/database`.
+`npm run dev` starts the API at `http://localhost:3000` and attempts to start a Cloudflare Quick Tunnel when `cloudflared` is installed. The generated public URL is printed and saved in the ignored `backend/.tunnel-url` file. Quick Tunnel URLs change when restarted.
+
+For automatic URL discovery by an already-installed Flutter app, configure the stable `workers.dev` discovery Worker once and set its endpoint and publish secret in `backend/.env`. See [the tunnel discovery setup](backend/tunnel-discovery/README.md). Build the mobile app with that stable Worker endpoint once; subsequent Quick Tunnel restarts do not require APK rebuilds.
+
+Check `http://localhost:3000/api/health` and `http://localhost:3000/api/health/database` for local backend health.
 
 ### 3. Run the mobile app
 

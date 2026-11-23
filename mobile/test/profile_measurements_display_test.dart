@@ -13,6 +13,84 @@ import 'package:karipa/theme/app_theme.dart';
 import 'package:karipa/services/theme_service.dart';
 
 void main() {
+  testWidgets('saves profile name changes to the backend and local account',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'token': 'test-token',
+      'userId': '1',
+      'name': 'Sherwin',
+    });
+
+    Map<String, dynamic>? savedRequest;
+    final mockClient = MockClient((request) async {
+      if (request.url.path.endsWith('/auth/profile') &&
+          request.method == 'GET') {
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            'profile': {'name': 'Sherwin', 'heightCm': null, 'weightKg': null},
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      if (request.url.path.endsWith('/auth/profile') &&
+          request.method == 'PATCH') {
+        savedRequest = jsonDecode(request.body) as Map<String, dynamic>;
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            'profile': {
+              'name': savedRequest!['name'],
+              'heightCm': null,
+              'weightKg': null,
+            },
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      return http.Response('Not Found', 404);
+    });
+
+    await http.runWithClient(() async {
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider(create: (_) => AuthService()),
+            ChangeNotifierProvider(create: (_) => ThemeService()),
+            ChangeNotifierProvider(create: (_) => UnitPreferences()),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.buildTheme(
+                brightness: Brightness.dark, useGoogleFonts: false),
+            home: const ProfileScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Edit profile name'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.byType(TextField),
+        ),
+        'Taylor Runner',
+      );
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      final authService =
+          tester.element(find.byType(ProfileScreen)).read<AuthService>();
+      final preferences = await SharedPreferences.getInstance();
+      expect(savedRequest, {'name': 'Taylor Runner'});
+      expect(authService.name, 'Taylor Runner');
+      expect(preferences.getString('name'), 'Taylor Runner');
+    }, () => mockClient);
+  });
+
   testWidgets('displays stored height and weight measurements from backend',
       (tester) async {
     SharedPreferences.setMockInitialValues({
@@ -29,6 +107,8 @@ void main() {
             'profile': {
               'heightCm': 175.0,
               'weightKg': 68.5,
+              'photoData':
+                  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/0y8AAAAASUVORK5CYII=',
             },
           }),
           200,
@@ -57,6 +137,17 @@ void main() {
       // Settle loading and async getProfile
       await tester.pumpAndSettle();
 
+      expect(
+        find.byWidgetPredicate((widget) {
+          if (widget is! Container || widget.decoration is! BoxDecoration) {
+            return false;
+          }
+          return (widget.decoration! as BoxDecoration).image?.image
+              is MemoryImage;
+        }),
+        findsOneWidget,
+      );
+
       // Find the Height and Weight TextFormFields
       final textFields = find.byType(TextFormField);
       expect(textFields, findsNWidgets(2));
@@ -83,8 +174,7 @@ void main() {
       // 68.5 kg * 2.2046226218 = ~151.0 lb
       final heightFieldImperial =
           tester.widget<TextFormField>(textFields.first);
-      final weightFieldImperial =
-          tester.widget<TextFormField>(textFields.last);
+      final weightFieldImperial = tester.widget<TextFormField>(textFields.last);
 
       expect(heightFieldImperial.controller?.text, '5.74');
       expect(weightFieldImperial.controller?.text, '151');
