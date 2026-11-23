@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import '../theme/design_tokens.dart';
 import '../services/location_service.dart';
 import '../services/api_service.dart';
-import '../services/unit_preferences.dart';
 
 class RoutePlanningScreen extends StatefulWidget {
   final String activity;
@@ -15,12 +13,11 @@ class RoutePlanningScreen extends StatefulWidget {
 }
 
 class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
-  final _distanceFormKey = GlobalKey<FormState>();
-  double _targetDistanceKm = 5.0;
-  final TextEditingController _customDistanceController =
-      TextEditingController();
-  final TextEditingController _routeNotesController = TextEditingController();
-  bool _isCustomDistance = false;
+  static const _minimumTargetDistanceKm = 3.0;
+  static const _maximumTargetDistanceKm = 30.0;
+  static const _targetDistanceStepKm = 0.5;
+
+  double _targetDistanceKm = _minimumTargetDistanceKm;
 
   bool _avoidMajorRoads = true;
   bool _preferSidewalks = true;
@@ -36,30 +33,8 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
     _preferCyclingLanes = widget.activity.toLowerCase() == 'cycling';
   }
 
-  @override
-  void dispose() {
-    _customDistanceController.dispose();
-    _routeNotesController.dispose();
-    super.dispose();
-  }
-
   Future<void> _handleGenerateRoutes() async {
-    if (_isCustomDistance && !_distanceFormKey.currentState!.validate()) {
-      return;
-    }
-    final displayedDistance = _isCustomDistance
-        ? double.tryParse(_customDistanceController.text.trim())
-        : _targetDistanceKm;
-    if (displayedDistance == null ||
-        !displayedDistance.isFinite ||
-        displayedDistance <= 0) {
-      setState(() => _errorMessage =
-          'Enter a positive target distance in ${context.read<UnitPreferences>().distanceUnit}.');
-      return;
-    }
-    final distance = _isCustomDistance
-        ? context.read<UnitPreferences>().distanceToKm(displayedDistance)
-        : displayedDistance;
+    final distance = _targetDistanceKm;
 
     setState(() {
       _isGenerating = true;
@@ -100,7 +75,6 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
         },
         latitude: position.latitude,
         longitude: position.longitude,
-        additionalNotes: _routeNotesController.text,
       );
 
       if (!mounted) return;
@@ -132,7 +106,7 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final units = context.watch<UnitPreferences>();
+    final colorScheme = Theme.of(context).colorScheme;
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: AppBar(
@@ -162,65 +136,71 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                             color: Theme.of(context).colorScheme.onSurface,
                             size: 22),
                         const SizedBox(width: 8),
-                        Text(
-                          'Target Distance (${units.distanceUnit})',
-                          style: TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.bold,
-                              color: Theme.of(context).colorScheme.onSurface),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        _buildPresetChip(3.0,
-                            '${units.distanceFromKm(3).toStringAsFixed(1)} ${units.distanceUnit}'),
-                        const SizedBox(width: 10),
-                        _buildPresetChip(5.0,
-                            '${units.distanceFromKm(5).toStringAsFixed(1)} ${units.distanceUnit}'),
-                        const SizedBox(width: 10),
-                        _buildPresetChip(10.0,
-                            '${units.distanceFromKm(10).toStringAsFixed(1)} ${units.distanceUnit}'),
-                        const SizedBox(width: 10),
-                        _buildCustomChip(),
-                      ],
-                    ),
-                    if (_isCustomDistance) ...[
-                      const SizedBox(height: 16),
-                      Form(
-                        key: _distanceFormKey,
-                        child: TextFormField(
-                          controller: _customDistanceController,
-                          keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true),
-                          decoration: InputDecoration(
-                            labelText: 'Custom target distance',
-                            suffixText: units.distanceUnit,
-                            border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12)),
+                        Flexible(
+                          child: Text(
+                            'Target Distance (km)',
+                            style: TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.bold,
+                                color: colorScheme.onSurface),
                           ),
-                          validator: (value) {
-                            final number = double.tryParse(value?.trim() ?? '');
-                            if (number == null || !number.isFinite) {
-                              return 'Enter a valid distance in ${units.distanceUnit}.';
-                            }
-                            if (number <= 0) {
-                              return 'Distance must be greater than zero ${units.distanceUnit}.';
-                            }
-                            return null;
-                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      '${_targetDistanceKm.toStringAsFixed(1)} km',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            color: KaripaPalette.coral,
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                    SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: 6,
+                        activeTrackColor: KaripaPalette.coral,
+                        inactiveTrackColor: colorScheme.outlineVariant,
+                        thumbColor: KaripaPalette.coral,
+                        overlayColor:
+                            KaripaPalette.coral.withValues(alpha: 0.16),
+                        valueIndicatorColor: KaripaPalette.coral,
+                        valueIndicatorTextStyle: const TextStyle(
+                          color: KaripaPalette.midnight,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Routes are ranked by actual network distance. A maximum distance deviation is not assumed unless the project configures one.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
+                      child: Slider(
+                        value: _targetDistanceKm,
+                        min: _minimumTargetDistanceKm,
+                        max: _maximumTargetDistanceKm,
+                        divisions: ((_maximumTargetDistanceKm -
+                                    _minimumTargetDistanceKm) /
+                                _targetDistanceStepKm)
+                            .round(),
+                        label: '${_targetDistanceKm.toStringAsFixed(1)} km',
+                        semanticFormatterCallback: (value) =>
+                            '${value.toStringAsFixed(1)} km',
+                        onChanged: (value) =>
+                            setState(() => _targetDistanceKm = value),
                       ),
-                    ],
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '3 km',
+                          style: TextStyle(
+                              color: colorScheme.onSurfaceVariant,
+                              fontSize: 12),
+                        ),
+                        Text(
+                          '30 km',
+                          style: TextStyle(
+                              color: colorScheme.onSurfaceVariant,
+                              fontSize: 12),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
@@ -241,12 +221,15 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                               color: Theme.of(context).colorScheme.onSurface,
                               size: 22),
                           const SizedBox(width: 8),
-                          Text(
-                            'Route Preferences',
-                            style: TextStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.bold,
-                                color: Theme.of(context).colorScheme.onSurface),
+                          Flexible(
+                            child: Text(
+                              'Route Preferences',
+                              style: TextStyle(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.bold,
+                                  color:
+                                      Theme.of(context).colorScheme.onSurface),
+                            ),
                           ),
                         ],
                       ),
@@ -305,20 +288,7 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 24),
-              TextField(
-                controller: _routeNotesController,
-                maxLength: 500,
-                maxLines: 2,
-                decoration: InputDecoration(
-                  labelText: 'Additional route preferences',
-                  hintText: 'For example: avoid hills or prefer a quiet loop',
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
-              ),
-              const SizedBox(height: 12),
-
+              if (_errorMessage == null) const SizedBox(height: 20),
               if (_errorMessage != null)
                 Container(
                   padding: const EdgeInsets.all(14),
@@ -368,8 +338,10 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                                 color: KaripaPalette.midnight, strokeWidth: 2),
                           ),
                           SizedBox(width: 12),
-                          Text('Generating & Ranking Routes...',
-                              style: TextStyle(fontWeight: FontWeight.bold)),
+                          Flexible(
+                            child: Text('Generating & Ranking Routes...',
+                                style: TextStyle(fontWeight: FontWeight.bold)),
+                          ),
                         ],
                       )
                     : const Row(
@@ -377,14 +349,17 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                         children: [
                           Icon(Icons.auto_awesome, size: 20),
                           SizedBox(width: 8),
-                          Text(
-                            'Generate Routes',
-                            style: TextStyle(
-                                fontSize: 16, fontWeight: FontWeight.bold),
+                          Flexible(
+                            child: Text(
+                              'Generate Routes',
+                              style: TextStyle(
+                                  fontSize: 16, fontWeight: FontWeight.bold),
+                            ),
                           ),
                         ],
                       ),
               ),
+              const SizedBox(height: 24),
             ],
           ),
         ),
@@ -405,48 +380,6 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
           offset: const Offset(0, 6),
         ),
       ],
-    );
-  }
-
-  Widget _buildPresetChip(double distance, String label) {
-    final isSelected = !_isCustomDistance && _targetDistanceKm == distance;
-    return Expanded(
-      child: ChoiceChip(
-        label: Text(label),
-        selected: isSelected,
-        selectedColor: KaripaPalette.coral,
-        labelStyle: const TextStyle(
-          color: KaripaPalette.midnight,
-          fontWeight: FontWeight.w600,
-        ),
-        onSelected: (val) {
-          if (val) {
-            setState(() {
-              _isCustomDistance = false;
-              _targetDistanceKm = distance;
-            });
-          }
-        },
-      ),
-    );
-  }
-
-  Widget _buildCustomChip() {
-    return Expanded(
-      child: ChoiceChip(
-        label: const Text('Custom'),
-        selected: _isCustomDistance,
-        selectedColor: KaripaPalette.coral,
-        labelStyle: const TextStyle(
-          color: KaripaPalette.midnight,
-          fontWeight: FontWeight.w600,
-        ),
-        onSelected: (val) {
-          setState(() {
-            _isCustomDistance = true;
-          });
-        },
-      ),
     );
   }
 }

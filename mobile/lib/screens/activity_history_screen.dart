@@ -64,6 +64,12 @@ class _ActivityHistoryScreenState extends State<ActivityHistoryScreen> {
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          tooltip: 'Back',
+          onPressed: () => Navigator.of(context)
+              .pushNamedAndRemoveUntil('/home', (route) => false),
+        ),
         title: const Text('Activity History',
             style: TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: Theme.of(context).colorScheme.surface,
