@@ -48,7 +48,7 @@ void main() {
           .first,
     );
     for (final distance in visibleNarrowScreenPresetsKm) {
-      final preset = find.text('$distance km');
+      final preset = find.text('$distance km').last;
       expect(preset, findsOneWidget);
       final rect = tester.getRect(preset);
       presetRects.add(rect);
@@ -60,7 +60,7 @@ void main() {
         isFalse,
       );
     }
-    for (final hiddenDistance in [5, 10, 20, 25]) {
+    for (final hiddenDistance in [20, 25]) {
       expect(find.text('$hiddenDistance km'), findsNothing);
     }
     expect(
@@ -91,8 +91,8 @@ void main() {
     final controlTheme = tester.widget<SliderTheme>(find.byType(SliderTheme));
     expect(controlTheme.data.activeTrackColor, KaripaPalette.coral);
     expect(controlTheme.data.thumbColor, KaripaPalette.coral);
-    expect(find.byType(TextButton), findsNothing);
-    expect(find.byType(ChoiceChip), findsNothing);
+    expect(find.byType(TextButton), findsWidgets);
+    expect(find.byType(ChoiceChip), findsNWidgets(3));
 
     final maximumMarkerWidth =
         presetRects.map((rect) => rect.width).reduce((first, second) {
@@ -103,8 +103,8 @@ void main() {
       final normalizedValue = (distance - 3) / 27;
       return layoutRect.left +
           sliderInset +
-          3 +
-          normalizedValue * (layoutRect.width - 2 * sliderInset - 6);
+          6 +
+          normalizedValue * (layoutRect.width - 2 * sliderInset - 12);
     }).toList(growable: false);
     for (var index = 0; index < presetRects.length; index++) {
       expect(presetRects[index].center.dx,
@@ -125,6 +125,8 @@ void main() {
 
     expect(tester.widget<Slider>(sliderFinder).value, 30.0);
     expect(find.text('30.0 km'), findsOneWidget);
+    await tester.ensureVisible(find.text('Prioritize Sidewalks & Trails'));
+    await tester.pumpAndSettle();
     await tester
         .ensureVisible(find.widgetWithText(ElevatedButton, 'Generate Routes'));
     await tester.pumpAndSettle();
@@ -172,8 +174,10 @@ void main() {
     );
     const targetValue = 14.5;
     const targetPosition = (targetValue - 3) / 27;
-    final targetX =
-        layoutRect.left + 24 + 3 + targetPosition * (layoutRect.width - 48 - 6);
+    final targetX = layoutRect.left +
+        24 +
+        6 +
+        targetPosition * (layoutRect.width - 48 - 12);
 
     await tester.tapAt(Offset(targetX, sliderRect.center.dy));
     await tester.pump(const Duration(milliseconds: 100));
@@ -199,7 +203,7 @@ void main() {
     expect(tester.widget<AnimatedScale>(selectedMarkerScale).scale, 1.0);
 
     final nextStepX =
-        layoutRect.left + 24 + 3 + (12.5 / 27) * (layoutRect.width - 48 - 6);
+        layoutRect.left + 24 + 6 + (12.5 / 27) * (layoutRect.width - 48 - 12);
     await tester.tapAt(
       Offset(nextStepX, sliderRect.center.dy),
     );
@@ -222,13 +226,15 @@ void main() {
     await tester.pumpAndSettle();
 
     final fieldFinder = find.byType(TextField);
+    await tester.ensureVisible(find.text('Enter a custom distance'));
+    await tester.tap(find.text('Enter a custom distance'));
+    await tester.pumpAndSettle();
     final field = tester.widget<TextField>(fieldFinder);
     expect(field.decoration?.labelText, 'Custom distance (km)');
     expect(field.keyboardType,
         const TextInputType.numberWithOptions(decimal: true));
     expect(
-      find.text(
-          'Leave blank for slider. Custom: 30.5 to 100 km in 0.5 km steps.'),
+      find.text('30.5?100 km, in 0.5 km steps.'),
       findsOneWidget,
     );
     final sliderFinder = find.byType(Slider);
@@ -258,7 +264,7 @@ void main() {
     await tester.enterText(fieldFinder, '42.5');
     await tester.pumpAndSettle();
     expect(find.text('42.5 km'), findsOneWidget);
-    expect(tester.widget<Slider>(sliderFinder).value, 30.0);
+    expect(tester.widget<Slider>(sliderFinder).value, 3.0);
     expect(tester.widget<Slider>(sliderFinder).onChanged, isNull);
     expect(
         find.text('Custom target active; standard slider covers 3 to 30 km.'),

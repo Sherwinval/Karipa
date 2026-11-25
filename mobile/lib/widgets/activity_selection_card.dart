@@ -21,11 +21,15 @@ class ActivitySelectionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final fill = selected ? scheme.primary : scheme.surfaceContainerLow;
-    final ink = selected ? scheme.onPrimary : scheme.onSurface;
+    final fill = selected
+        ? Color.alphaBlend(
+            scheme.primary.withValues(alpha: 0.08), scheme.surface)
+        : scheme.surface;
+    final ink = scheme.onSurface;
     final shape = RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(AppRadii.panel),
-      side: BorderSide(color: scheme.outline, width: selected ? 2 : 1),
+      side:
+          BorderSide(color: selected ? scheme.primary : scheme.outlineVariant),
     );
     return Semantics(
       button: true,
@@ -51,7 +55,11 @@ class ActivitySelectionCard extends StatelessWidget {
                   Row(children: [
                     Icon(icon, color: ink),
                     const Spacer(),
-                    if (selected) Icon(Icons.check_circle, color: ink),
+                    Icon(
+                        selected
+                            ? Icons.check_circle
+                            : Icons.radio_button_unchecked,
+                        color: ink),
                   ]),
                   const SizedBox(height: AppSpacing.md),
                   Text(label,

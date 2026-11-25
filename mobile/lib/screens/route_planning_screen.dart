@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../theme/design_tokens.dart';
 import '../services/location_service.dart';
 import '../services/api_service.dart';
+import '../utils/planning_duration.dart';
 
 class RoutePlanningScreen extends StatefulWidget {
   final String activity;
@@ -22,8 +23,8 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
   static const _maximumCustomDistanceKm = 100.0;
   static const _targetDistanceStepKm = 0.5;
   static const _distanceSnapThresholdKm = 0.5;
-  static const _sliderTrackHeight = 6.0;
-  static const _sliderThumbRadius = 10.0;
+  static const _sliderTrackHeight = 12.0;
+  static const _sliderThumbRadius = 12.0;
   static const _sliderOverlayRadius = 24.0;
   static const _distancePresetsKm = <double>[
     3,
@@ -42,6 +43,52 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
   double? _emphasizedPresetKm;
   double? _customTargetDistanceKm;
   String? _customDistanceError;
+  bool _showCustomDistance = false;
+
+  List<({String label, double km})> get _quickPresets =>
+      switch (widget.activity.toLowerCase()) {
+        'walking' => [
+            (label: '3 km', km: 3),
+            (label: '5 km', km: 5),
+            (label: '10 km', km: 10)
+          ],
+        'cycling' => [
+            (label: '10 km', km: 10),
+            (label: '20 km', km: 20),
+            (label: '30 km', km: 30),
+            (label: '50 km', km: 50)
+          ],
+        _ => [
+            (label: '5K', km: 5),
+            (label: '10K', km: 10),
+            (label: 'Half 21K', km: 21),
+            (label: '~42.5K', km: 42.5)
+          ],
+      };
+
+  void _selectPreset(double km) {
+    if (_isGenerating) return;
+    FocusScope.of(context).unfocus();
+    if (km > _maximumTargetDistanceKm) {
+      _customDistanceController.text = km.toStringAsFixed(1);
+      _handleCustomDistanceChanged(_customDistanceController.text);
+      setState(() => _showCustomDistance = true);
+    } else {
+      _customDistanceController.clear();
+      setState(() {
+        _customTargetDistanceKm = null;
+        _customDistanceError = null;
+        _targetDistanceKm = km;
+      });
+    }
+  }
+
+  void _returnToSlider() {
+    FocusScope.of(context).unfocus();
+    _customDistanceController.clear();
+    _handleCustomDistanceChanged('');
+    setState(() => _showCustomDistance = false);
+  }
 
   bool _avoidMajorRoads = true;
   bool _preferSidewalks = true;
@@ -50,6 +97,7 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
 
   bool _isGenerating = false;
   String? _errorMessage;
+  final _errorKey = GlobalKey();
 
   bool get _hasCustomDistanceInput =>
       _customDistanceController.text.trim().isNotEmpty;
@@ -136,6 +184,8 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
   }
 
   Future<void> _handleGenerateRoutes() async {
+    if (_isGenerating || _hasInvalidCustomDistance) return;
+    FocusScope.of(context).unfocus();
     final distance = _customTargetDistanceKm ?? _targetDistanceKm;
 
     setState(() {
@@ -203,6 +253,15 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
         _isGenerating = false;
         _errorMessage = e.toString().replaceAll('Exception:', '').trim();
       });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final errorContext = _errorKey.currentContext;
+        if (!mounted || errorContext == null) return;
+        Scrollable.ensureVisible(errorContext,
+            alignment: 1,
+            duration: MediaQuery.disableAnimationsOf(context)
+                ? Duration.zero
+                : const Duration(milliseconds: 160));
+      });
     }
   }
 
@@ -216,18 +275,95 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
         ? 'Fix custom distance'
         : '${selectedDistanceKm.toStringAsFixed(1)} km';
     return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.surface,
+      backgroundColor: colorScheme.brightness == Brightness.light
+          ? const Color(0xFFF5F4EF)
+          : colorScheme.surface,
       appBar: AppBar(
         title: Text(
-          'Plan ${widget.activity.toUpperCase()}',
+          'Plan ${widget.activity.isEmpty ? 'Activity' : widget.activity[0].toUpperCase() + widget.activity.substring(1).toLowerCase()}',
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
-        backgroundColor: Colors.transparent,
+        backgroundColor: colorScheme.brightness == Brightness.light
+            ? const Color(0xFFF5F4EF)
+            : colorScheme.surface,
         elevation: 0,
+      ),
+      bottomNavigationBar: Padding(
+        padding:
+            EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+        child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.xl, AppSpacing.md, AppSpacing.xl, AppSpacing.lg),
+              child: Center(
+                  heightFactor: 1,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(
+                        maxWidth: AppSizes.contentMaxWidth),
+                    child: SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: _isGenerating || hasInvalidCustomDistance
+                              ? null
+                              : _handleGenerateRoutes,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: KaripaPalette.coral,
+                            foregroundColor: KaripaPalette.midnight,
+                            minimumSize: const Size.fromHeight(54),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14)),
+                            elevation: 0,
+                            side: BorderSide.none,
+                          ),
+                          child: _isGenerating
+                              ? const Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                          color: KaripaPalette.midnight,
+                                          strokeWidth: 2),
+                                    ),
+                                    SizedBox(width: 12),
+                                    Flexible(
+                                      child: Text(
+                                          'Generating & Ranking Routes...',
+                                          style: TextStyle(
+                                              fontWeight: FontWeight.bold)),
+                                    ),
+                                  ],
+                                )
+                              : const Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.auto_awesome, size: 20),
+                                    SizedBox(width: 8),
+                                    Flexible(
+                                      child: Text(
+                                        'Generate Routes',
+                                        style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                        )),
+                  )),
+            )),
       ),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20.0),
+          padding: EdgeInsets.symmetric(
+              horizontal: math.max(
+                  AppSpacing.pageMargin(MediaQuery.sizeOf(context).width),
+                  (MediaQuery.sizeOf(context).width -
+                          AppSizes.contentMaxWidth) /
+                      2),
+              vertical: AppSpacing.lg),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -246,7 +382,7 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                         const SizedBox(width: 8),
                         Flexible(
                           child: Text(
-                            'Target Distance (km)',
+                            'Target Distance',
                             style: TextStyle(
                                 fontSize: 17,
                                 fontWeight: FontWeight.bold,
@@ -262,20 +398,64 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                           ? 'Custom distance is invalid. Correct it or clear the field to use the standard slider.'
                           : '${selectedDistanceKm.toStringAsFixed(1)} kilometers${_customTargetDistanceKm == null ? '' : ', custom target active'}',
                       child: ExcludeSemantics(
-                        child: Text(
-                          distanceDisplayText,
+                        child: Text.rich(
+                          hasInvalidCustomDistance
+                              ? TextSpan(text: distanceDisplayText)
+                              : TextSpan(
+                                  text: selectedDistanceKm.toStringAsFixed(1),
+                                  children: [
+                                    TextSpan(
+                                        text: ' km',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleLarge)
+                                  ],
+                                ),
                           style: Theme.of(context)
                               .textTheme
-                              .headlineSmall
+                              .displaySmall
                               ?.copyWith(
-                                color: hasInvalidCustomDistance
-                                    ? colorScheme.onSurfaceVariant
-                                    : colorScheme.onSurface,
-                                fontWeight: FontWeight.bold,
-                              ),
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                            color: hasInvalidCustomDistance
+                                ? colorScheme.onSurfaceVariant
+                                : colorScheme.onSurface,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ),
+                    const SizedBox(height: AppSpacing.md),
+                    Wrap(
+                        spacing: AppSpacing.sm,
+                        runSpacing: AppSpacing.xs,
+                        children: [
+                          for (final preset in _quickPresets)
+                            ChoiceChip(
+                              label: Text(preset.label),
+                              showCheckmark: false,
+                              selectedColor: KaripaPalette.coral,
+                              backgroundColor:
+                                  colorScheme.brightness == Brightness.light
+                                      ? const Color(0xFFF0EFEB)
+                                      : colorScheme.surfaceContainerHighest,
+                              side: BorderSide.none,
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12)),
+                              labelStyle: Theme.of(context)
+                                  .textTheme
+                                  .labelLarge
+                                  ?.copyWith(
+                                      color: selectedDistanceKm == preset.km &&
+                                              !hasInvalidCustomDistance
+                                          ? KaripaPalette.midnight
+                                          : colorScheme.onSurface),
+                              selected: !hasInvalidCustomDistance &&
+                                  selectedDistanceKm == preset.km,
+                              onSelected: _isGenerating
+                                  ? null
+                                  : (_) => _selectPreset(preset.km),
+                            ),
+                        ]),
                     const SizedBox(height: AppSpacing.sm),
                     LayoutBuilder(
                       builder: (context, constraints) {
@@ -387,7 +567,11 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                                 child: AnimatedScale(
                                   duration: const Duration(milliseconds: 180),
                                   curve: Curves.easeOutBack,
-                                  scale: isRecentlySnapped ? 1.12 : 1,
+                                  scale: isRecentlySnapped &&
+                                          !MediaQuery.disableAnimationsOf(
+                                              context)
+                                      ? 1.12
+                                      : 1,
                                   child: Text(
                                     marker.label,
                                     maxLines: 1,
@@ -417,7 +601,7 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                         final sliderTheme = SliderTheme.of(context).copyWith(
                           padding: EdgeInsets.zero,
                           trackHeight: _sliderTrackHeight,
-                          trackShape: const RoundedRectSliderTrackShape(),
+                          trackShape: const _GlassSliderTrackShape(),
                           thumbShape: const RoundSliderThumbShape(
                             enabledThumbRadius: _sliderThumbRadius,
                           ),
@@ -425,7 +609,10 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                             overlayRadius: _sliderOverlayRadius,
                           ),
                           activeTrackColor: KaripaPalette.coral,
-                          inactiveTrackColor: colorScheme.outlineVariant,
+                          inactiveTrackColor:
+                              colorScheme.brightness == Brightness.light
+                                  ? const Color(0xFFDDDAD2)
+                                  : colorScheme.outlineVariant,
                           thumbColor: KaripaPalette.coral,
                           overlayColor:
                               KaripaPalette.coral.withValues(alpha: 0.16),
@@ -469,9 +656,7 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                                   padding: EdgeInsets.symmetric(
                                     horizontal: sliderHorizontalInset,
                                   ),
-                                  value: _customTargetDistanceKm == null
-                                      ? _targetDistanceKm
-                                      : _maximumTargetDistanceKm,
+                                  value: _targetDistanceKm,
                                   min: _minimumTargetDistanceKm,
                                   max: _maximumTargetDistanceKm,
                                   divisions: ((_maximumTargetDistanceKm -
@@ -512,22 +697,91 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                       },
                     ),
                     const SizedBox(height: AppSpacing.lg),
-                    TextField(
-                      controller: _customDistanceController,
-                      enabled: !_isGenerating,
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
-                      textInputAction: TextInputAction.done,
-                      onChanged: _handleCustomDistanceChanged,
-                      decoration: InputDecoration(
-                        labelText: 'Custom distance (km)',
-                        hintText: 'e.g. 30.5',
-                        helperText:
-                            'Leave blank for slider. Custom: 30.5 to 100 km in 0.5 km steps.',
-                        helperMaxLines: 3,
-                        errorText: _customDistanceError,
-                      ),
+                    Text('Snaps to common distances.',
+                        style: Theme.of(context).textTheme.bodySmall),
+                    TextButton.icon(
+                      style: TextButton.styleFrom(
+                          alignment: AlignmentDirectional.centerStart,
+                          padding: EdgeInsets.zero,
+                          backgroundColor: Colors.transparent,
+                          foregroundColor:
+                              colorScheme.brightness == Brightness.light
+                                  ? const Color(0xFFAD340D)
+                                  : colorScheme.primary),
+                      onPressed: _isGenerating
+                          ? null
+                          : () => setState(
+                              () => _showCustomDistance = !_showCustomDistance),
+                      icon: Icon(
+                          _showCustomDistance ? Icons.expand_less : Icons.add),
+                      label: Text(_showCustomDistance
+                          ? 'Hide custom distance'
+                          : 'Enter a custom distance'),
                     ),
+                    if (!_showCustomDistance)
+                      Padding(
+                          padding: const EdgeInsets.only(left: 4, bottom: 8),
+                          child: Text('30.5–100 km',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                      color: colorScheme.onSurfaceVariant))),
+                    if (_showCustomDistance)
+                      TextField(
+                        controller: _customDistanceController,
+                        enabled: !_isGenerating,
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true),
+                        textInputAction: TextInputAction.done,
+                        onChanged: _handleCustomDistanceChanged,
+                        decoration: InputDecoration(
+                          labelText: 'Custom distance (km)',
+                          hintText: 'e.g. 30.5',
+                          helperText: '30.5?100 km, in 0.5 km steps.',
+                          helperMaxLines: 3,
+                          errorText: _customDistanceError,
+                        ),
+                      ),
+                    if (hasCustomDistanceInput)
+                      TextButton(
+                        onPressed: _isGenerating ? null : _returnToSlider,
+                        child: const Text('Return to standard slider'),
+                      ),
+                    const Divider(height: AppSpacing.xl),
+                    Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                              child: Text('Estimated time',
+                                  style:
+                                      Theme.of(context).textTheme.bodyMedium)),
+                          const SizedBox(width: AppSpacing.sm),
+                          Flexible(
+                              child: Text(
+                                  hasInvalidCustomDistance
+                                      ? 'Enter a valid distance'
+                                      : planningDuration(widget.activity,
+                                              selectedDistanceKm)
+                                          .duration,
+                                  textAlign: TextAlign.end,
+                                  style:
+                                      Theme.of(context).textTheme.titleMedium)),
+                        ]),
+                    const SizedBox(height: AppSpacing.xs),
+                    if (!hasInvalidCustomDistance)
+                      Align(
+                        alignment: AlignmentDirectional.centerEnd,
+                        child: Text(
+                          planningDuration(widget.activity, selectedDistanceKm)
+                              .assumption,
+                          textAlign: TextAlign.end,
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodySmall
+                              ?.copyWith(color: colorScheme.onSurfaceVariant),
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -567,10 +821,12 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                             style: TextStyle(
                                 fontWeight: FontWeight.w600, fontSize: 15)),
                         subtitle: const Text(
-                            'Route starts and finishes at your current location',
+                            'Start and finish at your current location.',
                             style: TextStyle(fontSize: 12)),
                         value: _preferLoop,
-                        onChanged: (v) => setState(() => _preferLoop = v),
+                        onChanged: _isGenerating
+                            ? null
+                            : (v) => setState(() => _preferLoop = v),
                       ),
                       const Divider(),
                       SwitchListTile.adaptive(
@@ -578,11 +834,12 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                         title: const Text('Avoid Major Roads',
                             style: TextStyle(
                                 fontWeight: FontWeight.w600, fontSize: 15)),
-                        subtitle: const Text(
-                            'Applied only when routing data supports this preference',
+                        subtitle: const Text('When supported by routing data.',
                             style: TextStyle(fontSize: 12)),
                         value: _avoidMajorRoads,
-                        onChanged: (v) => setState(() => _avoidMajorRoads = v),
+                        onChanged: _isGenerating
+                            ? null
+                            : (v) => setState(() => _avoidMajorRoads = v),
                       ),
                       const Divider(),
                       SwitchListTile.adaptive(
@@ -590,11 +847,12 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                         title: const Text('Prioritize Sidewalks & Trails',
                             style: TextStyle(
                                 fontWeight: FontWeight.w600, fontSize: 15)),
-                        subtitle: const Text(
-                            'Sidewalk availability may be unknown in map data',
+                        subtitle: const Text('When available in map data.',
                             style: TextStyle(fontSize: 12)),
                         value: _preferSidewalks,
-                        onChanged: (v) => setState(() => _preferSidewalks = v),
+                        onChanged: _isGenerating
+                            ? null
+                            : (v) => setState(() => _preferSidewalks = v),
                       ),
                       if (widget.activity.toLowerCase() == 'cycling') ...[
                         const Divider(),
@@ -607,8 +865,9 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                               'Cycling infrastructure may be unavailable in map data',
                               style: TextStyle(fontSize: 12)),
                           value: _preferCyclingLanes,
-                          onChanged: (v) =>
-                              setState(() => _preferCyclingLanes = v),
+                          onChanged: _isGenerating
+                              ? null
+                              : (v) => setState(() => _preferCyclingLanes = v),
                         ),
                       ],
                     ],
@@ -618,6 +877,7 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
               if (_errorMessage == null) const SizedBox(height: 20),
               if (_errorMessage != null)
                 Container(
+                  key: _errorKey,
                   padding: const EdgeInsets.all(14),
                   margin: const EdgeInsets.only(bottom: 20),
                   decoration: BoxDecoration(
@@ -633,61 +893,20 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                           size: 20),
                       const SizedBox(width: 10),
                       Expanded(
-                        child: Text(
-                          _errorMessage!,
-                          style: TextStyle(
-                              color: Theme.of(context).colorScheme.onSurface,
-                              fontSize: 13),
-                        ),
+                        child: Semantics(
+                            liveRegion: true,
+                            child: Text(
+                              _errorMessage!,
+                              style: TextStyle(
+                                  color:
+                                      Theme.of(context).colorScheme.onSurface,
+                                  fontSize: 13),
+                            )),
                       ),
                     ],
                   ),
                 ),
 
-              ElevatedButton(
-                onPressed: _isGenerating || hasInvalidCustomDistance
-                    ? null
-                    : _handleGenerateRoutes,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: KaripaPalette.coral,
-                  foregroundColor: KaripaPalette.midnight,
-                  minimumSize: const Size.fromHeight(54),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14)),
-                  elevation: 1,
-                ),
-                child: _isGenerating
-                    ? const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                                color: KaripaPalette.midnight, strokeWidth: 2),
-                          ),
-                          SizedBox(width: 12),
-                          Flexible(
-                            child: Text('Generating & Ranking Routes...',
-                                style: TextStyle(fontWeight: FontWeight.bold)),
-                          ),
-                        ],
-                      )
-                    : const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.auto_awesome, size: 20),
-                          SizedBox(width: 8),
-                          Flexible(
-                            child: Text(
-                              'Generate Routes',
-                              style: TextStyle(
-                                  fontSize: 16, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        ],
-                      ),
-              ),
               const SizedBox(height: 24),
             ],
           ),
@@ -700,16 +919,55 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
     final scheme = Theme.of(context).colorScheme;
     return BoxDecoration(
       color: scheme.surface,
-      borderRadius: BorderRadius.circular(18),
-      border: Border.all(color: scheme.outlineVariant),
-      boxShadow: [
-        BoxShadow(
-          color: scheme.shadow.withValues(alpha: 0.10),
-          blurRadius: 16,
-          offset: const Offset(0, 6),
-        ),
-      ],
+      borderRadius: BorderRadius.circular(AppRadii.panel),
+      border: Border.all(
+          color: scheme.brightness == Brightness.light
+              ? const Color(0xFFDDDAD2)
+              : scheme.outlineVariant),
     );
+  }
+}
+
+class _GlassSliderTrackShape extends RoundedRectSliderTrackShape {
+  const _GlassSliderTrackShape();
+
+  @override
+  void paint(
+    PaintingContext context,
+    Offset offset, {
+    required RenderBox parentBox,
+    required SliderThemeData sliderTheme,
+    required Animation<double> enableAnimation,
+    required TextDirection textDirection,
+    required Offset thumbCenter,
+    Offset? secondaryOffset,
+    bool isDiscrete = false,
+    bool isEnabled = false,
+    double additionalActiveTrackHeight = 2,
+  }) {
+    super.paint(context, offset,
+        parentBox: parentBox,
+        sliderTheme: sliderTheme,
+        enableAnimation: enableAnimation,
+        textDirection: textDirection,
+        thumbCenter: thumbCenter,
+        secondaryOffset: secondaryOffset,
+        isDiscrete: isDiscrete,
+        isEnabled: isEnabled,
+        additionalActiveTrackHeight: 0);
+    final rect = getPreferredRect(
+        parentBox: parentBox,
+        offset: offset,
+        sliderTheme: sliderTheme,
+        isEnabled: isEnabled,
+        isDiscrete: isDiscrete);
+    if (rect.width <= 8 || rect.height <= 0) return;
+    final highlight =
+        Rect.fromLTWH(rect.left + 4, rect.top + 2, rect.width - 8, 2);
+    context.canvas.drawRRect(
+        RRect.fromRectAndRadius(highlight, const Radius.circular(2)),
+        Paint()
+          ..color = Colors.white.withValues(alpha: isEnabled ? 0.32 : 0.12));
   }
 }
 
@@ -770,7 +1028,7 @@ class _DistancePresetTickMarkShape extends SliderTickMarkShape {
         : sliderTheme.inactiveTickMarkColor!;
     context.canvas.drawCircle(
       center,
-      4.5,
+      2.5,
       Paint()..color = markerColor,
     );
   }

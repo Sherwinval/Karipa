@@ -138,7 +138,7 @@ class HomeDashboard extends StatelessWidget {
                                   icon: Icons.arrow_outward,
                                   onPressed: onStartActivity),
                               const SizedBox(height: AppSpacing.md),
-                              Text('Choose an activity and plan your route.',
+                              Text('Choose an activity, plan a route, or record freely.',
                                   style: theme.textTheme.bodySmall
                                       ?.copyWith(color: KaripaPalette.ivory)),
                             ],
