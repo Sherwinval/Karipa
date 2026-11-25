@@ -1,48 +1,58 @@
 # Karipa
 
-Karipa is a mobile route-planning and activity-tracking app for walking, jogging, running, and cycling. It pairs a Flutter app with a TypeScript API and PostgreSQL/PostGIS database.
+Karipa is an Android app for planning and recording outdoor activities. It supports walking, jogging, running, and cycling, with route planning powered by Valhalla and OpenStreetMap.
 
-## Current features
+## Features
 
-- Plan routes using Valhalla routing and OpenStreetMap maps.
-- Register, sign in, verify email, and manage a profile.
-- Track planned routes or record an activity without a route; review and save recordings to activity history.
-- View a weekly distance leaderboard.
-- Use metric or imperial units and light or dark appearance.
+- Plan routes from an activity type, target distance, and route preferences
+- Register, sign in, verify email, and manage a profile
+- Record activities with or without a planned route
+- Review saved activities and view activity history
+- Compare distance on the weekly leaderboard
+- Choose metric or imperial units and light or dark appearance
 
-Route candidates use Valhalla's OSM routing graph for road-following geometry and authoritative distance. The backend rejects routes farther than 0.5 km from the requested target by default; set `ROUTE_MAX_DISTANCE_DEVIATION_KM` to a positive value to change the tolerance. Valhalla applies supported activity-specific costing options, but OSM coverage and preference tags can be incomplete. Candidate geometry supplied directly by a client is rejected; use `POST /api/routes/generate` so geometry and distance are verified against Valhalla.
+Routes are verified against Valhalla before they are returned. Groq is optional and is used only for preference interpretation and route-ranking assistance; routing geometry and distance always come from Valhalla.
 
-Groq is optional and runs server-side. The backend uses `openai/gpt-oss-20b` by default for structured preference interpretation, validated-candidate evaluation, and distance guidance; set `GROQ_MODEL` to change it, `GROQ_ENABLED=false` to disable all Groq assistance, or `AI_ROUTE_RANKING_ENABLED=false` to disable candidate evaluation only. Groq requests have a 5-second timeout and at most one retry on transient network/server failures. Invalid output, unavailable service, and missing configuration fall back to deterministic routing and ranking. The backend logs request latency, retries, errors, and reported token usage without logging prompts or credentials. Route geometry, access, and distance always come from Valhalla; the app never receives model-generated coordinates.
+## Project structure
 
-The Groq model page documents a 131,072-token context window and approximate throughput of 1,000 tokens/second for GPT-OSS 20B. Groq's public rate-limit table lists Developer-plan limits of 30 RPM, 1,000 RPD, 8,000 TPM, and 200,000 TPD for this model; the exact organization limits are available in the Groq account's Limits page and can differ. Calorie values are estimates. Activity recording currently requires the app to remain in the foreground; background tracking and offline synchronization are not supported.
+| Directory | Purpose |
+| --- | --- |
+| `mobile/` | Flutter Android application |
+| `backend/` | Express and TypeScript API |
+| `backend/prisma/` | PostgreSQL/PostGIS schema and migrations |
+| `docs/` | Database and frontend setup guides |
 
-## Repository layout
+The Python project in `ai/` is a legacy route scorer and is not required to run Karipa.
 
-- `mobile/` — Flutter application. See [mobile/README.md](mobile/README.md).
-- `backend/` — Express, TypeScript, and Prisma API.
-- `backend/prisma/` — PostgreSQL schema and migrations.
-- `ai/` — legacy Python route scorer; it is not used by the current route-generation flow.
-- `docs/` — database and frontend development guides.
-
-## Prerequisites
+## Requirements
 
 - Git
-- Node.js 20 or later and npm
+- Node.js 20 or later
 - Flutter SDK with Dart 3.3 or later
-- PostgreSQL 16 with PostGIS, or a compatible managed PostgreSQL/PostGIS database
-- Android Studio and an Android emulator or device to run the Android app
+- PostgreSQL 16 with PostGIS
+- Android Studio or a connected Android device
+- A reachable Valhalla server
 
-## Setup
+## Quick start
 
-### 1. Configure PostgreSQL
+### 1. Set up PostgreSQL
 
-Create a database with PostGIS enabled. For local setup instructions, see [docs/database-setup.md](docs/database-setup.md). Do not use `docker-compose.yml` as a PostGIS-ready database; it starts a plain PostgreSQL container.
+Create a PostgreSQL database with PostGIS enabled. Follow [the database setup guide](docs/database-setup.md). Do not use `docker-compose.yml` for local PostGIS setup; it defines a plain PostgreSQL container.
 
 ### 2. Configure and start the API
 
-Copy `backend/.env.example` to `backend/.env`, then set the database URLs and a secure `JWT_SECRET`. Configure a reachable Valhalla server using `VALHALLA_BASE_URL`. Groq-powered assistance is optional; set `GROQ_API_KEY` to enable it. Without a key, free-text notes are not interpreted and route ranking uses deterministic ordering. SMTP settings are optional for email delivery.
+```powershell
+Copy-Item backend\.env.example backend\.env
+```
 
-From the repository root, run:
+Edit `backend/.env` with at least:
+
+- `DATABASE_URL` and `DIRECT_URL`
+- `JWT_SECRET`
+- `LOCATION_DATA_ENCRYPTION_KEY`
+- `VALHALLA_BASE_URL`
+
+Then run:
 
 ```powershell
 Set-Location backend
@@ -52,21 +62,46 @@ npx prisma migrate dev
 npm run dev
 ```
 
-`npm run dev` starts the API at `http://localhost:3000` and attempts to start a Cloudflare Quick Tunnel when `cloudflared` is installed. The generated public URL is printed and saved in the ignored `backend/.tunnel-url` file. Quick Tunnel URLs change when restarted.
+Then check:
 
-For automatic URL discovery by an already-installed Flutter app, configure the stable `workers.dev` discovery Worker once and set its endpoint and publish secret in `backend/.env`. See [the tunnel discovery setup](backend/tunnel-discovery/README.md). Build the mobile app with that stable Worker endpoint once; subsequent Quick Tunnel restarts do not require APK rebuilds.
+- `http://localhost:3000/api/health`
+- `http://localhost:3000/api/health/database`
 
-Check `http://localhost:3000/api/health` and `http://localhost:3000/api/health/database` for local backend health.
+Groq is optional. Set `GROQ_API_KEY` to enable it. Leave it unset to use deterministic routing and ranking. Optional SMTP settings enable email OTP delivery.
+
+For Cloudflare Quick Tunnel and automatic mobile discovery, see [the tunnel setup guide](backend/tunnel-discovery/README.md).
 
 ### 3. Run the mobile app
 
-Follow [mobile setup and testing](mobile/README.md). The Android emulator uses `http://10.0.2.2:3000/api` to reach the API on the development computer. A physical device needs a reachable computer address; see the mobile README.
+```powershell
+Set-Location ..\mobile
+flutter pub get
+flutter devices
+flutter run
+```
 
-## Backend checks
-
-From `backend/`:
+The Android emulator uses `http://10.0.2.2:3000/api` by default. For a physical device, use the computer's reachable LAN address:
 
 ```powershell
+flutter run --dart-define=API_BASE_URL=http://192.168.1.25:3000
+```
+
+See [the mobile setup guide](mobile/README.md) for tunnel discovery, release builds, and additional testing instructions.
+
+## Validation
+
+Run backend checks:
+
+```powershell
+Set-Location backend
 npm test
 npm run build
+```
+
+Run mobile checks:
+
+```powershell
+Set-Location mobile
+flutter analyze
+flutter test
 ```
