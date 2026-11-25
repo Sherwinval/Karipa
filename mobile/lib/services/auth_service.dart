@@ -118,6 +118,60 @@ class AuthService extends ChangeNotifier {
     }
   }
 
+  /// Recovery never changes the current session or persists reset credentials.
+  Future<Map<String, dynamic>> recoverPassword(
+      String operation, Map<String, String> payload) async {
+    if (!const {'request', 'resend', 'verify', 'reset'}.contains(operation)) {
+      throw ArgumentError.value(operation, 'operation');
+    }
+    try {
+      final response = await ApiConfig.send(
+        '/auth/password/$operation',
+        (uri) => http.post(uri,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(payload)),
+      );
+      final data = jsonDecode(response.body);
+      if (data is! Map<String, dynamic>) throw const FormatException();
+      if (response.statusCode == 200 && data['success'] == true) {
+        final valid = switch (operation) {
+          'request' || 'resend' => data['challengeId'] is String &&
+              data['expiresIn'] is num &&
+              data['resendAfter'] is num,
+          'verify' =>
+            data['authorization'] is String && data['expiresIn'] is num,
+          _ => true,
+        };
+        if (!valid) throw const FormatException();
+      }
+      return {
+        ...data,
+        if (data['message'] is! String)
+          'message':
+              'Password recovery is temporarily unavailable. Please try again later.',
+        'success': response.statusCode == 200 && data['success'] == true,
+      };
+    } on TimeoutException {
+      return {
+        'success': false,
+        'message':
+            'The request timed out. Check your connection and try again. If you requested a code, check your inbox before resending.'
+      };
+    } on FormatException {
+      return {
+        'success': false,
+        'message':
+            'Password recovery is temporarily unavailable. Please try again later.'
+      };
+    } catch (_) {
+      return {
+        'success': false,
+        'message':
+            'Could not connect. Check your internet connection and try again.'
+      };
+    }
+  }
+
   Future<Map<String, dynamic>> register(
     String name,
     String email,

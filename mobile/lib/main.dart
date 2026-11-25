@@ -14,6 +14,7 @@ import 'screens/splash_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
 import 'screens/otp_screen.dart';
+import 'screens/password_recovery_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/activity_selection_screen.dart';
 import 'screens/route_planning_screen.dart';
@@ -72,6 +73,10 @@ class KaripaApp extends StatelessWidget {
 
           case '/register':
             return MaterialPageRoute(builder: (_) => const RegisterScreen());
+
+          case '/forgot_password':
+            return MaterialPageRoute(
+                builder: (_) => const PasswordRecoveryScreen());
 
           case '/otp':
             return MaterialPageRoute(

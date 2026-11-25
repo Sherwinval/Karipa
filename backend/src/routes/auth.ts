@@ -6,6 +6,7 @@ import { prisma } from '../lib/prisma.js';
 import { sendOtpEmail } from '../services/emailService.js';
 import crypto from 'crypto';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.js';
+import { passwordRecoveryRouter } from './passwordRecovery.js';
 
 const credentialsSchema = z.object({ 
   name: z.string().min(1).optional(), 
@@ -20,6 +21,7 @@ export const registrationSchema = credentialsSchema.extend({
 }).strict();
 
 export const authRouter = Router();
+authRouter.use('/password', passwordRecoveryRouter);
 
 async function getProfileUpdatedAt(userId: bigint): Promise<Date | null> {
   const rows = await prisma.$queryRaw<{ updatedAt: Date }[]>`
@@ -130,7 +132,7 @@ authRouter.post('/verify-otp', async (req, res) => {
       data: { isVerified: true, otp: null, otpExpiresAt: null }
     });
     
-    const token = jwt.sign({}, getJwtSecret(), { subject: updatedUser.id.toString(), expiresIn: '7d' });
+    const token = jwt.sign({ sessionVersion: updatedUser.sessionVersion }, getJwtSecret(), { subject: updatedUser.id.toString(), expiresIn: '7d' });
     res.json({ success: true, message: 'Email verified successfully', token, userId: updatedUser.id.toString(), name: updatedUser.name });
   } catch (error) {
     console.error('OTP Verification error:', error);
@@ -196,7 +198,7 @@ authRouter.post('/login', async (req, res) => {
       return;
     }
     
-    const token = jwt.sign({}, getJwtSecret(), { subject: user.id.toString(), expiresIn: '7d' });
+    const token = jwt.sign({ sessionVersion: user.sessionVersion }, getJwtSecret(), { subject: user.id.toString(), expiresIn: '7d' });
     res.json({ success: true, token, userId: user.id.toString(), name: user.name });
   } catch (error) {
     console.error('Login error:', error);

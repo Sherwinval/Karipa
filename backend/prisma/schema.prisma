@@ -13,6 +13,7 @@ model User {
   name         String
   email        String     @unique
   passwordHash String     @map("password_hash")
+  sessionVersion Int      @default(0) @map("session_version")
   isVerified   Boolean    @default(false) @map("is_verified")
   otp          String?
   otpExpiresAt DateTime?  @map("otp_expires_at")
@@ -23,8 +24,34 @@ model User {
   updatedAt    DateTime   @updatedAt @map("updated_at")
   activities   Activity[]
   routes       Route[]
+  recoveryChallenges PasswordRecovery[]
 
   @@map("tbl_users")
+}
+
+model PasswordRecovery {
+  id             String   @id @db.Uuid
+  emailHash      String   @unique @map("email_hash")
+  userId         BigInt?  @map("user_id")
+  user           User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  otpHash        String?  @map("otp_hash")
+  issuedAt       DateTime @map("issued_at")
+  expiresAt      DateTime @map("expires_at")
+  attempts       Int      @default(0)
+  resetHash      String?  @unique @map("reset_hash")
+  resetExpiresAt DateTime? @map("reset_expires_at")
+  consumedAt     DateTime? @map("consumed_at")
+
+  @@index([userId])
+  @@map("password_recovery")
+}
+
+model RecoveryRateLimit {
+  key       String @id
+  count     Int
+  expiresAt DateTime @map("expires_at")
+
+  @@map("recovery_rate_limits")
 }
 
 model Activity {

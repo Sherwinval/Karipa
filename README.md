@@ -67,7 +67,7 @@ Then check:
 - `http://localhost:3000/api/health`
 - `http://localhost:3000/api/health/database`
 
-Groq is optional. Set `GROQ_API_KEY` to enable it. Leave it unset to use deterministic routing and ranking. Optional SMTP settings enable email OTP delivery.
+Groq is optional. Set `GROQ_API_KEY` to enable it. Leave it unset to use deterministic routing and ranking. SMTP settings are required for registration and password recovery email delivery. Configure `PASSWORD_RECOVERY_SECRET` for recovery; see [password recovery setup and verification](docs/password-recovery.md).
 
 For Cloudflare Quick Tunnel and automatic mobile discovery, see [the tunnel setup guide](backend/tunnel-discovery/README.md).
 
