@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import test from 'node:test';
-import { cloudflaredInstallInstructions, extractQuickTunnelUrl, observeTunnelProcess, publishTunnelUrl, stopChild } from './dev-with-tunnel.mjs';
+import { cloudflaredInstallInstructions, extractQuickTunnelUrl, getCloudflaredEnvironment, observeTunnelProcess, publishTunnelUrl, redactTunnelSecrets, stopChild, waitForTunnelHealth } from './dev-with-tunnel.mjs';
 import tunnelDiscovery from '../tunnel-discovery/worker.js';
 
 test('extracts only HTTPS Quick Tunnel URLs from cloudflared output', () => {
@@ -17,6 +17,24 @@ test('provides Windows cloudflared installation instructions', () => {
   const instructions = cloudflaredInstallInstructions('win32');
   assert.match(instructions, /winget install --id Cloudflare\.cloudflared/);
   assert.match(instructions, /developers\.cloudflare\.com/);
+});
+
+test('does not pass discovery credentials to cloudflared', () => {
+  const environment = getCloudflaredEnvironment({
+    PATH: 'C:\\tools',
+    KARIPA_TUNNEL_DISCOVERY_URL: 'https://discovery.example/api/tunnel',
+    KARIPA_TUNNEL_DISCOVERY_TOKEN: 'secret-token',
+  });
+  assert.equal(environment.PATH, 'C:\\tools');
+  assert.equal('KARIPA_TUNNEL_DISCOVERY_URL' in environment, false);
+  assert.equal('KARIPA_TUNNEL_DISCOVERY_TOKEN' in environment, false);
+});
+
+test('redacts discovery secrets from cloudflared output', () => {
+  assert.equal(
+    redactTunnelSecrets('token=secret-token', ['secret-token']),
+    'token=[REDACTED]',
+  );
 });
 
 test('captures URLs from both cloudflared output streams', async () => {
@@ -59,6 +77,58 @@ test('publishes the URL with a secret header without logging it', async () => {
     assert.deepEqual(JSON.parse(published.options.body), {
       url: 'https://fresh.trycloudflare.com',
     });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('waits for the public API health check before declaring the tunnel ready', async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url) => {
+    requests.push(url);
+    return new Response('{"success":true}', { status: 200 });
+  };
+  try {
+    assert.equal(
+      await waitForTunnelHealth(
+        'https://ready.trycloudflare.com',
+        () => true,
+        () => false,
+        1,
+        0,
+      ),
+      true,
+    );
+    assert.deepEqual(requests, [
+      'https://ready.trycloudflare.com/api/health',
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('keeps checking until a delayed public tunnel health check succeeds', async () => {
+  const originalFetch = globalThis.fetch;
+  let requestCount = 0;
+  globalThis.fetch = async () => {
+    requestCount++;
+    return requestCount === 1
+      ? new Response('Tunnel is starting', { status: 530 })
+      : new Response('{"success":true}', { status: 200 });
+  };
+  try {
+    assert.equal(
+      await waitForTunnelHealth(
+        'https://starting.trycloudflare.com',
+        () => true,
+        () => false,
+        3,
+        0,
+      ),
+      true,
+    );
+    assert.equal(requestCount, 2);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -21,6 +21,15 @@ export const registrationSchema = credentialsSchema.extend({
 
 export const authRouter = Router();
 
+async function getProfileUpdatedAt(userId: bigint): Promise<Date | null> {
+  const rows = await prisma.$queryRaw<{ updatedAt: Date }[]>`
+    SELECT updated_at AS "updatedAt"
+    FROM public.tbl_users
+    WHERE id = ${userId}
+  `;
+  return rows[0]?.updatedAt ?? null;
+}
+
 function getJwtSecret(): string {
   const secret = process.env.JWT_SECRET;
   if (!secret) throw new Error('JWT_SECRET is not configured');
@@ -236,14 +245,34 @@ export const profileUpdateSchema = z.object({
 
 authRouter.get('/profile', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
+    const updatedAt = await getProfileUpdatedAt(req.userId!);
+    if (!updatedAt) {
+      res.status(404).json({ success: false, message: 'User not found' });
+      return;
+    }
+
+    res.setHeader('Cache-Control', 'private, no-cache');
+    const etag = `"${updatedAt.getTime()}"`;
+    res.setHeader('ETag', etag);
+    if (req.header('if-none-match') === etag) {
+      res.status(304).end();
+      return;
+    }
+
     const user = await prisma.user.findUnique({
       where: { id: req.userId! },
-      select: { name: true, heightCm: true, weightKg: true, photoData: true },
+      select: {
+        name: true,
+        heightCm: true,
+        weightKg: true,
+        photoData: true,
+      },
     });
     if (!user) {
       res.status(404).json({ success: false, message: 'User not found' });
       return;
     }
+    res.setHeader('ETag', etag);
     res.json({
       success: true,
       profile: {
@@ -273,14 +302,25 @@ authRouter.patch('/profile', requireAuth, async (req: AuthenticatedRequest, res)
   try {
     const user = await prisma.user.update({
       where: { id: req.userId! },
+      select: {
+        name: true,
+        heightCm: true,
+        weightKg: true,
+        photoData: true,
+      },
       data: {
         ...(parsed.data.name !== undefined && { name: parsed.data.name }),
         ...(parsed.data.heightCm !== undefined && { heightCm: parsed.data.heightCm }),
         ...(parsed.data.weightKg !== undefined && { weightKg: parsed.data.weightKg }),
         ...(parsed.data.photoData !== undefined && { photoData: parsed.data.photoData }),
       },
-      select: { name: true, heightCm: true, weightKg: true, photoData: true },
     });
+    const updatedAt = await getProfileUpdatedAt(req.userId!);
+    if (!updatedAt) {
+      res.status(404).json({ success: false, message: 'User not found' });
+      return;
+    }
+    res.setHeader('ETag', `"${updatedAt.getTime()}"`);
     res.json({
       success: true,
       profile: {

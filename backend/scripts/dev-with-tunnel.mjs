@@ -17,6 +17,20 @@ export function extractQuickTunnelUrl(line) {
   return line.match(quickTunnelPattern)?.[0] ?? null;
 }
 
+export function getCloudflaredEnvironment(environment = process.env) {
+  const childEnvironment = { ...environment };
+  delete childEnvironment.KARIPA_TUNNEL_DISCOVERY_URL;
+  delete childEnvironment.KARIPA_TUNNEL_DISCOVERY_TOKEN;
+  return childEnvironment;
+}
+
+export function redactTunnelSecrets(line, secrets = []) {
+  return secrets.reduce(
+    (redacted, secret) => secret ? redacted.replaceAll(secret, '[REDACTED]') : redacted,
+    line,
+  );
+}
+
 export function cloudflaredInstallInstructions(platform = process.platform) {
   if (platform === 'win32') {
     return [
@@ -93,7 +107,7 @@ function forwardOutput(stream, write, onLine = () => {}) {
   });
 }
 
-export function observeTunnelProcess(child, handlers) {
+export function observeTunnelProcess(child, handlers, secrets = []) {
   let spawnError;
   const onTunnelOutput = (line) => {
     const url = extractQuickTunnelUrl(line);
@@ -102,12 +116,12 @@ export function observeTunnelProcess(child, handlers) {
 
   forwardOutput(
     child.stdout,
-    (line) => console.log(`[cloudflared] ${line}`),
+    (line) => console.log(`[cloudflared] ${redactTunnelSecrets(line, secrets)}`),
     onTunnelOutput,
   );
   forwardOutput(
     child.stderr,
-    (line) => console.error(`[cloudflared] ${line}`),
+    (line) => console.error(`[cloudflared] ${redactTunnelSecrets(line, secrets)}`),
     onTunnelOutput,
   );
   child.on('error', (error) => {
@@ -171,8 +185,15 @@ async function updateDiscoveryUntilPublished(configuration, url, isCurrent, isSh
   }
 }
 
-async function waitForTunnelHealth(url, isCurrentTunnel, isShuttingDown) {
-  for (let attempt = 0; attempt < 60 && isCurrentTunnel() && !isShuttingDown(); attempt += 1) {
+export async function waitForTunnelHealth(
+  url,
+  isCurrentTunnel,
+  isShuttingDown,
+  maxAttempts = Number.POSITIVE_INFINITY,
+  retryDelayMilliseconds = 3000,
+) {
+  let hasWarned = false;
+  for (let attempt = 0; attempt < maxAttempts && isCurrentTunnel() && !isShuttingDown(); attempt += 1) {
     try {
       const response = await fetch(`${url}/api/health`, {
         signal: AbortSignal.timeout(3000),
@@ -181,18 +202,19 @@ async function waitForTunnelHealth(url, isCurrentTunnel, isShuttingDown) {
         const body = await response.json();
         if (body.success === true) {
           console.log(`TUNNEL STATUS: CONNECTED (${response.status} health check)`);
-          return;
+          return true;
         }
       }
     } catch {
-      // The public hostname can be assigned before the tunnel is ready.
+      // Quick Tunnel DNS and routing can take time to become available.
     }
-    await delay(1000);
+    if (!hasWarned && isCurrentTunnel() && !isShuttingDown()) {
+      console.warn('TUNNEL STATUS: Waiting for the public health check to succeed before publishing the URL.');
+      hasWarned = true;
+    }
+    await delay(retryDelayMilliseconds);
   }
-
-  if (isCurrentTunnel() && !isShuttingDown()) {
-    console.warn('TUNNEL STATUS: URL assigned, but the public health check did not succeed.');
-  }
+  return false;
 }
 
 function waitForClose(child, timeoutMilliseconds = 5000) {
@@ -233,12 +255,21 @@ export async function runDevelopmentServer() {
   let urlWrite = Promise.resolve();
   let discoveryUpdate = Promise.resolve();
   let discoveryCleanup = Promise.resolve();
+  let tunnelHealthCheck = Promise.resolve();
   let discoveryConfiguration;
 
   try {
     discoveryConfiguration = getDiscoveryConfiguration();
   } catch (error) {
     console.error(error.message);
+  }
+
+  if (discoveryConfiguration) {
+    try {
+      await publishTunnelUrl(discoveryConfiguration, '', 'DELETE');
+    } catch (error) {
+      console.error(`Could not clear the previously published tunnel URL: ${error.message}`);
+    }
   }
 
   try {
@@ -262,6 +293,7 @@ export async function runDevelopmentServer() {
       cwd: backendDirectory,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
+      env: getCloudflaredEnvironment(),
     });
   } catch (error) {
     console.error(`Could not start cloudflared: ${error.message}`);
@@ -269,7 +301,9 @@ export async function runDevelopmentServer() {
   }
 
   if (tunnel) {
-    observeTunnelProcess(tunnel, {
+    observeTunnelProcess(
+      tunnel,
+      {
       onUrl: (url) => {
         if (tunnelUrl === url) return;
         tunnelUrl = url;
@@ -278,23 +312,26 @@ export async function runDevelopmentServer() {
         urlWrite = writeFile(tunnelUrlFile, `${url}\n`, 'utf8').catch((error) => {
           console.error(`Could not save the tunnel URL: ${error.message}`);
         });
-        if (!discoveryConfiguration) {
-          console.warn(
-            'DISCOVERY STATUS: Not configured. The mobile app cannot discover new tunnel URLs until a stable discovery service is configured.',
-          );
-        } else {
+        tunnelHealthCheck = waitForTunnelHealth(
+          url,
+          () => tunnelUrl === url,
+          () => shuttingDown,
+        ).then(async (isHealthy) => {
+          if (!isHealthy || tunnelUrl !== url || shuttingDown) return;
+          if (!discoveryConfiguration) {
+            console.warn(
+              'DISCOVERY STATUS: Not configured. The mobile app cannot discover new tunnel URLs until a stable discovery service is configured.',
+            );
+            return;
+          }
           discoveryUpdate = updateDiscoveryUntilPublished(
             discoveryConfiguration,
             url,
             () => tunnelUrl === url,
             () => shuttingDown,
           );
-        }
-        void waitForTunnelHealth(
-          url,
-          () => tunnelUrl === url,
-          () => shuttingDown,
-        );
+          await discoveryUpdate;
+        });
       },
       onError: (error) => {
         if (error.code === 'ENOENT') {
@@ -324,7 +361,12 @@ export async function runDevelopmentServer() {
           console.error('Cloudflare Tunnel stopped unexpectedly; the backend will keep running.');
         }
       },
-    });
+      },
+      [
+        discoveryConfiguration?.token,
+        process.env.KARIPA_TUNNEL_DISCOVERY_TOKEN,
+      ],
+    );
   } else {
     console.error('The backend will continue running without a public tunnel.');
   }
@@ -349,6 +391,7 @@ export async function runDevelopmentServer() {
   shuttingDown = true;
   console.log('Stopping Karipa backend and Cloudflare Tunnel...');
   await Promise.all([stopChild(tunnel), stopChild(server)]);
+  await tunnelHealthCheck;
   await urlWrite;
   await discoveryCleanup;
   await removeTunnelUrlFile();

@@ -20,6 +20,7 @@ model User {
   weightKg     Decimal?   @map("weight_kg") @db.Decimal(6, 2)
   photoData    String?    @map("photo_data") @db.Text
   createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
   activities   Activity[]
   routes       Route[]
 

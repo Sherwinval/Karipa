@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
+import { decryptLocationData, encryptLocationData } from '../lib/locationEncryption.js';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.js';
 import {
   validateAndCalculateActivityCalories,
@@ -84,8 +85,8 @@ function serializeActivity(activity: any) {
     calorieMethodVersion: activity.calorieMethodVersion,
     startedAt: activity.startedAt.toISOString(),
     completedAt: activity.completedAt.toISOString(),
-    routeData: activity.routeData,
-    gpsData: activity.gpsData,
+    routeData: decryptLocationData(activity.routeData),
+    gpsData: decryptLocationData(activity.gpsData),
   };
 }
 
@@ -215,10 +216,12 @@ activityRouter.post('/', async (req: AuthenticatedRequest, res) => {
         calorieMethodVersion: calorieCalculation.calorieMethodVersion,
         startedAt: data.startedAt,
         completedAt: data.completedAt,
-        gpsData: data.gpsData as object | undefined,
+        gpsData: data.gpsData == null
+          ? undefined
+          : encryptLocationData(data.gpsData),
         routeData: data.routeData == null
           ? undefined
-          : data.routeData as object,
+          : encryptLocationData(data.routeData),
         idempotencyKey: data.idempotencyKey,
         splits: data.timePerKm ? { create: data.timePerKm } : undefined,
       },
@@ -247,8 +250,13 @@ activityRouter.post('/', async (req: AuthenticatedRequest, res) => {
 });
 
 activityRouter.get('/:id', async (req: AuthenticatedRequest, res) => {
+  const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  if (!/^\d+$/.test(String(rawId))) {
+    res.status(400).json({ success: false, message: 'Invalid activity id' });
+    return;
+  }
+
   try {
-    const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const activityId = BigInt(String(rawId));
     const activity = await prisma.activity.findFirst({
       where: { id: activityId, userId: req.userId! },
@@ -261,8 +269,9 @@ activityRouter.get('/:id', async (req: AuthenticatedRequest, res) => {
     }
 
     res.json({ success: true, activity: serializeActivity(activity) });
-  } catch (err) {
-    res.status(400).json({ success: false, message: 'Invalid activity id' });
+  } catch (error) {
+    console.error('Activity load error:', error);
+    res.status(500).json({ success: false, message: 'Failed to load activity' });
   }
 });
 

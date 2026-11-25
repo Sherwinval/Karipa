@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { encryptLocationData } from '../lib/locationEncryption.js';
 
 const testEmail = `karipa-crud-${Date.now()}@example.test`;
 
@@ -29,7 +30,7 @@ try {
       distance: 2500,
       duration: 1800,
       score: 82,
-      routeData: { type: 'LineString', coordinates: [] },
+      routeData: encryptLocationData({ type: 'LineString', coordinates: [] }),
     },
   });
 

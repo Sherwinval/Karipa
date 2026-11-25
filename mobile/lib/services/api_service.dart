@@ -9,8 +9,17 @@ import '../models/activity_model.dart';
 
 class ApiService {
   static const _localActivitiesKey = 'guestActivities';
+  static String? _profileEtag;
 
   static String get baseUrl => ApiConfig.baseUrl;
+
+  static void clearProfileCache() {
+    _profileEtag = null;
+  }
+
+  static void _rememberProfileVersion(http.Response response) {
+    _profileEtag = response.headers['etag'] ?? _profileEtag;
+  }
 
   static Future<String?> _getToken() async {
     final prefs = await SharedPreferences.getInstance();
@@ -167,10 +176,36 @@ class ApiService {
       ),
       timeout: const Duration(seconds: 20),
     );
+    if (response.statusCode == 200) _rememberProfileVersion(response);
     if (response.statusCode != 200) {
       throw Exception(
           _responseMessage(response, 'Failed to load profile measurements'));
     }
+    final data = jsonDecode(response.body);
+    if (data is! Map || data['success'] != true || data['profile'] is! Map) {
+      throw Exception('The server returned an invalid profile response');
+    }
+    return Map<String, dynamic>.from(data['profile'] as Map);
+  }
+
+  static Future<Map<String, dynamic>?> refreshProfileIfChanged() async {
+    final token = await _getToken();
+    if (token == null || token.isEmpty) return null;
+
+    final headers = await _headers();
+    if (_profileEtag != null) {
+      headers['If-None-Match'] = _profileEtag!;
+    }
+    final response = await ApiConfig.send(
+      '/auth/profile',
+      (uri) => http.get(uri, headers: headers),
+      timeout: const Duration(seconds: 20),
+    );
+    if (response.statusCode == 304) return null;
+    if (response.statusCode != 200) {
+      throw Exception(_responseMessage(response, 'Failed to refresh profile'));
+    }
+    _rememberProfileVersion(response);
     final data = jsonDecode(response.body);
     if (data is! Map || data['success'] != true || data['profile'] is! Map) {
       throw Exception('The server returned an invalid profile response');
@@ -196,6 +231,7 @@ class ApiService {
       ),
       timeout: const Duration(seconds: 20),
     );
+    if (response.statusCode == 200) _rememberProfileVersion(response);
     if (response.statusCode != 200) {
       throw Exception(
           _responseMessage(response, 'Failed to save profile measurements'));
@@ -222,6 +258,7 @@ class ApiService {
       ),
       timeout: const Duration(seconds: 20),
     );
+    if (response.statusCode == 200) _rememberProfileVersion(response);
     if (response.statusCode != 200) {
       throw Exception(
           _responseMessage(response, 'Failed to save profile name'));
@@ -250,6 +287,7 @@ class ApiService {
       ),
       timeout: const Duration(seconds: 30),
     );
+    if (response.statusCode == 200) _rememberProfileVersion(response);
     if (response.statusCode != 200) {
       throw Exception(
           _responseMessage(response, 'Failed to save profile photo'));

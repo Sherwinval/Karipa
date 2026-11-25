@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -35,6 +36,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final _imagePicker = ImagePicker();
   Uint8List? _profilePhotoBytes;
   bool _photoSaving = false;
+  Timer? _profileSyncTimer;
+  bool _profileRefreshInFlight = false;
 
   String _formatMeasurement(double? value, {required int decimals}) {
     if (value == null) return '';
@@ -137,6 +140,54 @@ class _ProfileScreenState extends State<ProfileScreen> {
         Provider.of<AuthService>(context).isAuthenticated) {
       _profileLoadStarted = true;
       _loadMeasurements();
+      _profileSyncTimer ??= Timer.periodic(
+        const Duration(seconds: 5),
+        (_) => _refreshProfileFromServer(),
+      );
+    }
+  }
+
+  Future<void> _refreshProfileFromServer() async {
+    if (!mounted ||
+        _profileRefreshInFlight ||
+        _profileLoading ||
+        _profileSaving ||
+        _photoSaving ||
+        _isEditingMeasurements) {
+      return;
+    }
+
+    _profileRefreshInFlight = true;
+    try {
+      final profile = await ApiService.refreshProfileIfChanged();
+      if (profile == null || !mounted) return;
+
+      final name = profile['name'];
+      if (name is String && name.trim().isNotEmpty) {
+        await context.read<AuthService>().syncProfileNameFromServer(name);
+      }
+      if (!mounted) return;
+
+      final height = profile['heightCm']?.toString() ?? '';
+      final weight = profile['weightKg']?.toString() ?? '';
+      final photoData = profile['photoData'];
+      final photoBytes = photoData is String && photoData.contains(',')
+          ? base64Decode(photoData.split(',').last)
+          : null;
+      _savedHeight = height;
+      _savedWeight = weight;
+      _draftHeightCm = double.tryParse(height);
+      _draftWeightKg = double.tryParse(weight);
+      _syncControllersToDraft(context.read<UnitPreferences>());
+      setState(() {
+        _profilePhotoBytes = photoBytes;
+        _profileLoaded = true;
+        _profileError = null;
+      });
+    } catch (error) {
+      debugPrint('Could not sync profile updates: $error');
+    } finally {
+      _profileRefreshInFlight = false;
     }
   }
 
@@ -245,6 +296,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   void dispose() {
+    _profileSyncTimer?.cancel();
     _heightController.dispose();
     _weightController.dispose();
     super.dispose();

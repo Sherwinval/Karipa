@@ -90,6 +90,7 @@ class AuthService extends ChangeNotifier {
       }
 
       if (response.statusCode == 200 && data['success'] == true) {
+        ApiService.clearProfileCache();
         _token = data['token'];
         _userId = data['userId'];
         _name = data['name'];
@@ -166,6 +167,7 @@ class AuthService extends ChangeNotifier {
       final data = jsonDecode(response.body);
 
       if (response.statusCode == 200 && data['success']) {
+        ApiService.clearProfileCache();
         _token = data['token'];
         _userId = data['userId'];
         _name = data['name'];
@@ -219,6 +221,7 @@ class AuthService extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    ApiService.clearProfileCache();
     _isAuthenticated = false;
     _isGuest = false;
     _token = null;
@@ -235,6 +238,13 @@ class AuthService extends ChangeNotifier {
       throw Exception('The server returned an invalid profile name');
     }
     _name = savedName;
+    await _saveAuthStatus();
+    notifyListeners();
+  }
+
+  Future<void> syncProfileNameFromServer(String name) async {
+    if (_name == name) return;
+    _name = name;
     await _saveAuthStatus();
     notifyListeners();
   }

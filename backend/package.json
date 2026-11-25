@@ -10,6 +10,7 @@
     "start": "node dist/server.js",
     "migrate": "prisma migrate dev",
     "prisma:generate": "prisma generate",
+    "encrypt:location-data": "tsx src/scripts/encrypt-location-data.ts",
     "verify:crud": "tsx src/scripts/verify-crud.ts",
     "test": "vitest run",
     "test:dev-tunnel": "node --test scripts/dev-with-tunnel.node-test.mjs"

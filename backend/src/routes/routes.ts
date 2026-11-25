@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
+import { decryptLocationData, encryptLocationData } from '../lib/locationEncryption.js';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.js';
 import {
   generateCandidateRoutes,
@@ -198,7 +199,7 @@ routeRouter.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
         distance: Number(distanceKm || 0),
         duration: durationSeconds ? Math.round(Number(durationSeconds)) : null,
         score: score ? Number(score) : null,
-        routeData: {},
+        routeData: encryptLocationData({}),
       },
     });
 
@@ -211,11 +212,12 @@ routeRouter.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
         distanceKm: Number(route.distance),
         durationSeconds: route.duration,
         score: route.score ? Number(route.score) : null,
-        routeData: route.routeData,
+        routeData: decryptLocationData(route.routeData),
         createdAt: route.createdAt.toISOString(),
       },
     });
-  } catch (err: any) {
+  } catch (error) {
+    console.error('Route save error:', error);
     res.status(500).json({ success: false, message: 'Failed to save route' });
   }
 });
@@ -237,23 +239,25 @@ routeRouter.get('/', requireAuth, async (req: AuthenticatedRequest, res) => {
         distanceKm: Number(r.distance),
         durationSeconds: r.duration,
         score: r.score ? Number(r.score) : null,
-        routeData: r.routeData,
+        routeData: decryptLocationData(r.routeData),
         createdAt: r.createdAt.toISOString(),
       })),
     });
-  } catch (err: any) {
+  } catch (error) {
+    console.error('Saved routes load error:', error);
     res.status(500).json({ success: false, message: 'Failed to load routes' });
   }
 });
 
 // Get specific route by id
 routeRouter.get('/:id', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  if (!/^\d+$/.test(String(rawId))) {
+    res.status(400).json({ success: false, message: 'Invalid route id' });
+    return;
+  }
+
   try {
-    const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    if (!/^\d+$/.test(String(rawId))) {
-      res.status(400).json({ success: false, message: 'Invalid route id' });
-      return;
-    }
     const routeId = BigInt(String(rawId));
     const route = await prisma.route.findFirst({
       where: { id: routeId, userId: req.userId! },
@@ -273,11 +277,12 @@ routeRouter.get('/:id', requireAuth, async (req: AuthenticatedRequest, res) => {
         distanceKm: Number(route.distance),
         durationSeconds: route.duration,
         score: route.score ? Number(route.score) : null,
-        routeData: route.routeData,
+        routeData: decryptLocationData(route.routeData),
         createdAt: route.createdAt.toISOString(),
       },
     });
-  } catch (err: any) {
-    res.status(400).json({ success: false, message: 'Invalid route id' });
+  } catch (error) {
+    console.error('Saved route load error:', error);
+    res.status(500).json({ success: false, message: 'Failed to load route' });
   }
 });

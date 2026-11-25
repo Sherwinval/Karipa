@@ -1,4 +1,4 @@
-import { afterEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import cors from 'cors';
@@ -31,8 +31,17 @@ const originalValhallaBaseUrl = process.env.VALHALLA_BASE_URL;
 const originalAiRouteRankingEnabled = process.env.AI_ROUTE_RANKING_ENABLED;
 const originalGroqEnabled = process.env.GROQ_ENABLED;
 const originalMaxDeviation = process.env.ROUTE_MAX_DISTANCE_DEVIATION_KM;
+const originalLocationEncryptionKey = process.env.LOCATION_DATA_ENCRYPTION_KEY;
+beforeEach(() => {
+  process.env.LOCATION_DATA_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64');
+});
 afterEach(() => {
   vi.unstubAllGlobals();
+  if (originalLocationEncryptionKey === undefined) {
+    delete process.env.LOCATION_DATA_ENCRYPTION_KEY;
+  } else {
+    process.env.LOCATION_DATA_ENCRYPTION_KEY = originalLocationEncryptionKey;
+  }
   if (originalValhallaBaseUrl === undefined) {
     delete process.env.VALHALLA_BASE_URL;
   } else {
