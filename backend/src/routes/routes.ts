@@ -1,8 +1,9 @@
-import { Router } from 'express';
+import { Router, type Request as ExpressRequest, type Response as ExpressResponse } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { decryptLocationData, encryptLocationData } from '../lib/locationEncryption.js';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.js';
+import { globalRouteQueue } from '../services/routeQueueService.js';
 import {
   generateCandidateRoutes,
   getMaximumDistanceDeviationKm,
@@ -22,6 +23,7 @@ const generateSchema = z.object({
   activity: z.enum(['walking', 'jogging', 'running', 'cycling']).optional(),
   activityType: z.enum(['walking', 'jogging', 'running', 'cycling']).optional(),
   targetDistanceKm: z.number().finite().positive(),
+  targetDistanceToleranceKm: z.number().finite().positive().optional(),
   preferences: z.object({
     avoidMajorRoads: z.boolean().optional(),
     preferSidewalks: z.boolean().optional(),
@@ -57,6 +59,9 @@ routeRouter.post('/generate', async (req, res) => {
     res.status(400).json({ success: false, message: 'Select an activity type' });
     return;
   }
+
+  const job = globalRouteQueue.createJob();
+  globalRouteQueue.bindResponseClose(res, job.id);
 
   try {
     const effectivePreferences: RoutePreferences = { ...preferences };
@@ -97,20 +102,25 @@ routeRouter.post('/generate', async (req, res) => {
       );
     }
 
+    const { targetDistanceToleranceKm } = parsed.data;
+
     // Valhalla is the authority for route geometry, access, and distance.
     const candidates = await generateCandidateRoutes(
       activity,
       targetDistanceKm,
       effectivePreferences,
-      startLocation
+      startLocation,
+      { jobId: job.id, targetDistanceToleranceKm },
     );
 
-    const maximumDistanceDeviationKm = getMaximumDistanceDeviationKm();
+    const maximumDistanceDeviationKm = getMaximumDistanceDeviationKm(targetDistanceToleranceKm);
     const rankedRoutes = await rankCandidateRoutes(
       activity,
       targetDistanceKm,
       effectivePreferences,
-      candidates
+      candidates,
+      undefined,
+      targetDistanceToleranceKm,
     );
 
     if (rankedRoutes.length === 0) {
@@ -144,6 +154,10 @@ routeRouter.post('/generate', async (req, res) => {
       });
       return;
     }
+
+    job.status = 'completed';
+    job.result = rankedRoutes;
+
     res.json({
       success: true,
       routes: rankedRoutes,
@@ -157,9 +171,21 @@ routeRouter.post('/generate', async (req, res) => {
         notesInterpreted,
         unsupportedPreferences,
         startLocation,
+        jobId: job.id,
       },
     });
-  } catch (error: unknown) {
+  } catch (error: any) {
+    if (error && typeof error === 'object' && error.statusCode === 503) {
+      if (error.retryAfterSeconds) {
+        res.setHeader('Retry-After', String(error.retryAfterSeconds));
+      }
+      res.status(503).json({
+        success: false,
+        message: error.message || 'Route generation queue is full. Please try again later.',
+        provider: 'valhalla',
+      });
+      return;
+    }
     if (error instanceof RoutingServiceError) {
       console.error(`Route generation failed (${error.providerStatus ?? error.statusCode})`);
       res.status(error.statusCode).json({
@@ -177,6 +203,172 @@ routeRouter.post('/generate', async (req, res) => {
     });
   }
 });
+
+// Asynchronous route generation endpoint (returns 202 Accepted with jobId)
+routeRouter.post('/generate-async', async (req, res) => {
+  const parsed = generateSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({
+      success: false,
+      message: 'Invalid route generation parameters',
+      errors: parsed.error.flatten(),
+    });
+    return;
+  }
+
+  const { targetDistanceKm, preferences, startLocation, additionalNotes } = parsed.data;
+  const activity = parsed.data.activity ?? parsed.data.activityType;
+  if (!activity) {
+    res.status(400).json({ success: false, message: 'Select an activity type' });
+    return;
+  }
+
+  const job = globalRouteQueue.createJob();
+
+  // Process job asynchronously in background
+  (async () => {
+    try {
+      const effectivePreferences: RoutePreferences = { ...preferences };
+      const unsupportedPreferences: string[] = [];
+      let notesInterpreted = false;
+      if (additionalNotes && isGroqEnabled()) {
+        try {
+          const interpretation = await interpretRoutePreferences(additionalNotes);
+          for (const key of [
+            'avoidMajorRoads',
+            'preferSidewalks',
+            'preferLoop',
+            'preferCyclingInfrastructure',
+            'avoidHills',
+          ] as const) {
+            if (effectivePreferences[key] === undefined && interpretation.constraints[key] !== null) {
+              effectivePreferences[key] = interpretation.constraints[key];
+            }
+          }
+          unsupportedPreferences.push(...interpretation.unsupportedPreferences);
+          notesInterpreted = true;
+        } catch (error) {
+          console.warn('Groq route preference interpretation unavailable; using structured preferences only');
+        }
+      }
+      if (activity !== 'cycling' && effectivePreferences.avoidMajorRoads) {
+        unsupportedPreferences.push('Avoiding major roads cannot currently be verified for pedestrian routes.');
+      }
+      if (activity !== 'cycling' && effectivePreferences.preferCyclingInfrastructure) {
+        unsupportedPreferences.push('Cycling infrastructure preference applies only to cycling routes.');
+      }
+      const candidates = await generateCandidateRoutes(
+        activity,
+        targetDistanceKm,
+        effectivePreferences,
+        startLocation,
+        { jobId: job.id, targetDistanceToleranceKm: parsed.data.targetDistanceToleranceKm },
+      );
+      if ((job.status as string) === 'cancelled') return;
+      const rankedRoutes = await rankCandidateRoutes(
+        activity,
+        targetDistanceKm,
+        effectivePreferences,
+        candidates,
+        undefined,
+        parsed.data.targetDistanceToleranceKm,
+      );
+      if (job.status === 'cancelled') return;
+      const maximumDistanceDeviationKm = getMaximumDistanceDeviationKm(parsed.data.targetDistanceToleranceKm);
+      job.status = 'completed';
+      job.result = {
+        success: true,
+        routes: rankedRoutes,
+        meta: {
+          totalGenerated: candidates.length,
+          activity,
+          targetDistanceKm,
+          maximumDistanceDeviationKm,
+          closeCandidateAvailable: rankedRoutes.length > 0,
+          rankingSource: rankedRoutes[0]?.rankingSource,
+          notesInterpreted,
+          unsupportedPreferences,
+          startLocation,
+          jobId: job.id,
+        },
+      };
+      job.completedAt = Date.now();
+    } catch (err: any) {
+      if ((job.status as string) === 'cancelled') return;
+      job.status = 'failed';
+      job.error = err?.message || 'Asynchronous route generation failed';
+      job.completedAt = Date.now();
+    }
+  })();
+
+  res.status(202).json({
+    success: true,
+    jobId: job.id,
+    status: job.status,
+    message: 'Route generation job queued successfully',
+  });
+});
+
+// Check status of asynchronous route generation job
+routeRouter.get('/jobs/:jobId', (req, res) => {
+  const jobId = Array.isArray(req.params.jobId) ? req.params.jobId[0] : req.params.jobId;
+  const job = globalRouteQueue.getJob(jobId);
+
+  if (!job) {
+    res.status(404).json({
+      success: false,
+      message: 'Job not found or expired',
+    });
+    return;
+  }
+
+  res.json({
+    success: true,
+    job: {
+      id: job.id,
+      status: job.status,
+      result: job.result,
+      error: job.error,
+      createdAt: job.createdAt,
+      completedAt: job.completedAt,
+    },
+  });
+});
+
+// Cancel an active or queued route generation job
+const handleCancelJob = (req: ExpressRequest, res: ExpressResponse) => {
+  const jobId = Array.isArray(req.params.jobId) ? req.params.jobId[0] : req.params.jobId;
+  const job = globalRouteQueue.getJob(jobId);
+
+  if (!job) {
+    res.status(404).json({
+      success: false,
+      message: 'Job not found or already completed/expired',
+    });
+    return;
+  }
+
+  const cancelled = globalRouteQueue.cancelJob(jobId, 'Cancelled by user request');
+  if (!cancelled) {
+    res.status(409).json({
+      success: false,
+      message: `Job ${jobId} is already ${job.status} and cannot be cancelled`,
+      jobId,
+      status: job.status,
+    });
+    return;
+  }
+
+  res.json({
+    success: true,
+    message: `Job ${jobId} cancelled successfully`,
+    jobId,
+    status: 'cancelled',
+  });
+};
+
+routeRouter.delete('/jobs/:jobId', handleCancelJob);
+routeRouter.post('/jobs/:jobId/cancel', handleCancelJob);
 
 for (const endpoint of ['/evaluate', '/recommend']) {
   routeRouter.post(endpoint, (_req, res) => {

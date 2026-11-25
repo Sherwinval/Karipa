@@ -50,6 +50,9 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
 
   bool _isGenerating = false;
   String? _errorMessage;
+  int _activeRequestId = 0;
+  String? _activeJobId;
+  Timer? _pollTimer;
 
   bool get _hasCustomDistanceInput =>
       _customDistanceController.text.trim().isNotEmpty;
@@ -66,11 +69,33 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
   @override
   void dispose() {
     _snapEmphasisTimer?.cancel();
+    _pollTimer?.cancel();
+    ++_activeRequestId;
+    if (_activeJobId != null) {
+      unawaited(ApiService.cancelRouteJob(_activeJobId!));
+    }
     _customDistanceController.dispose();
     super.dispose();
   }
 
+  void _cancelActiveGeneration({bool resetLoading = true}) {
+    ++_activeRequestId;
+    _pollTimer?.cancel();
+    _pollTimer = null;
+    final previousJobId = _activeJobId;
+    _activeJobId = null;
+    if (previousJobId != null) {
+      unawaited(ApiService.cancelRouteJob(previousJobId));
+    }
+    if (mounted && resetLoading) {
+      setState(() {
+        _isGenerating = false;
+      });
+    }
+  }
+
   void _handleStandardDistanceChanged(double value) {
+    if (_isGenerating) _cancelActiveGeneration();
     final previousValue = _targetDistanceKm;
     final isLeavingPreset = _distancePresetsKm.contains(previousValue) &&
         (value - previousValue).abs() <= _targetDistanceStepKm;
@@ -101,6 +126,7 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
   }
 
   void _handleCustomDistanceChanged(String input) {
+    if (_isGenerating) _cancelActiveGeneration();
     final trimmedInput = input.trim();
     setState(() {
       _customTargetDistanceKm = null;
@@ -137,6 +163,9 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
 
   Future<void> _handleGenerateRoutes() async {
     final distance = _customTargetDistanceKm ?? _targetDistanceKm;
+    _cancelActiveGeneration(resetLoading: false);
+
+    final currentRequestId = ++_activeRequestId;
 
     setState(() {
       _isGenerating = true;
@@ -165,8 +194,10 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
             'Could not determine current GPS position. Please check your signal and try again.');
       }
 
-      // 2. Call backend Route Generation API
-      final routes = await ApiService.generateRoutes(
+      if (currentRequestId != _activeRequestId) return;
+
+      // 2. Submit the asynchronous route generation job.
+      final jobId = await ApiService.submitAsyncRouteJob(
         activity: widget.activity,
         targetDistanceKm: distance,
         preferences: {
@@ -179,26 +210,91 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
         longitude: position.longitude,
       );
 
-      if (!mounted) return;
-      setState(() => _isGenerating = false);
-
-      if (routes.isEmpty) {
-        throw Exception(
-            'No routes could be generated around this area. Try selecting a different distance.');
+      if (currentRequestId != _activeRequestId || !mounted) {
+        unawaited(ApiService.cancelRouteJob(jobId));
+        return;
       }
+      _activeJobId = jobId;
 
-      Navigator.pushNamed(
-        context,
-        '/recommended_routes',
-        arguments: {
-          'routes': routes,
-          'activity': widget.activity,
-          'targetDistanceKm': distance,
-          'currentLocation': position,
-        },
-      );
+      final startedAt = DateTime.now();
+      _pollTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
+        if (currentRequestId != _activeRequestId || !mounted) {
+          timer.cancel();
+          return;
+        }
+        if (DateTime.now().difference(startedAt) >
+            const Duration(seconds: 240)) {
+          timer.cancel();
+          _cancelActiveGeneration();
+          if (mounted) {
+            setState(() {
+              _errorMessage =
+                  'Route generation timed out. Please retry.';
+            });
+          }
+          return;
+        }
+
+        try {
+          final job = await ApiService.pollRouteJob(jobId);
+          if (currentRequestId != _activeRequestId || !mounted) return;
+          final status = job['status']?.toString();
+          if (status == 'queued' || status == 'processing') return;
+          timer.cancel();
+          _pollTimer = null;
+
+          if (status == 'completed') {
+            final routes = ApiService.parseCompletedJobRoutes(job, null);
+            _activeJobId = null;
+            setState(() => _isGenerating = false);
+            if (routes.isEmpty) {
+              setState(() {
+                _errorMessage =
+                    'No routes could be generated around this area. Try selecting a different distance.';
+              });
+              return;
+            }
+            Navigator.pushNamed(
+              context,
+              '/recommended_routes',
+              arguments: {
+                'routes': routes,
+                'activity': widget.activity,
+                'targetDistanceKm': distance,
+                'currentLocation': position,
+              },
+            );
+            return;
+          }
+          if (status == 'cancelled') {
+            if (currentRequestId == _activeRequestId) {
+              setState(() {
+                _isGenerating = false;
+                _errorMessage = null;
+              });
+            }
+            return;
+          }
+          if (status == 'expired') {
+            throw Exception(
+                'Route generation expired while waiting. Please retry.');
+          }
+          throw Exception(job['error']?.toString() ??
+              'Route generation failed. Please retry.');
+        } catch (e) {
+          if (currentRequestId != _activeRequestId || !mounted) return;
+          timer.cancel();
+          _pollTimer = null;
+          _activeJobId = null;
+          setState(() {
+            _isGenerating = false;
+            _errorMessage =
+                e.toString().replaceAll('Exception:', '').trim();
+          });
+        }
+      });
     } catch (e) {
-      if (!mounted) return;
+      if (currentRequestId != _activeRequestId || !mounted) return;
       setState(() {
         _isGenerating = false;
         _errorMessage = e.toString().replaceAll('Exception:', '').trim();
@@ -570,7 +666,10 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                             'Route starts and finishes at your current location',
                             style: TextStyle(fontSize: 12)),
                         value: _preferLoop,
-                        onChanged: (v) => setState(() => _preferLoop = v),
+                        onChanged: (v) {
+                          if (_isGenerating) _cancelActiveGeneration();
+                          setState(() => _preferLoop = v);
+                        },
                       ),
                       const Divider(),
                       SwitchListTile.adaptive(
@@ -582,7 +681,10 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                             'Applied only when routing data supports this preference',
                             style: TextStyle(fontSize: 12)),
                         value: _avoidMajorRoads,
-                        onChanged: (v) => setState(() => _avoidMajorRoads = v),
+                        onChanged: (v) {
+                          if (_isGenerating) _cancelActiveGeneration();
+                          setState(() => _avoidMajorRoads = v);
+                        },
                       ),
                       const Divider(),
                       SwitchListTile.adaptive(
@@ -594,7 +696,10 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                             'Sidewalk availability may be unknown in map data',
                             style: TextStyle(fontSize: 12)),
                         value: _preferSidewalks,
-                        onChanged: (v) => setState(() => _preferSidewalks = v),
+                        onChanged: (v) {
+                          if (_isGenerating) _cancelActiveGeneration();
+                          setState(() => _preferSidewalks = v);
+                        },
                       ),
                       if (widget.activity.toLowerCase() == 'cycling') ...[
                         const Divider(),
@@ -607,8 +712,10 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                               'Cycling infrastructure may be unavailable in map data',
                               style: TextStyle(fontSize: 12)),
                           value: _preferCyclingLanes,
-                          onChanged: (v) =>
-                              setState(() => _preferCyclingLanes = v),
+                          onChanged: (v) {
+                            if (_isGenerating) _cancelActiveGeneration();
+                            setState(() => _preferCyclingLanes = v);
+                          },
                         ),
                       ],
                     ],
@@ -645,9 +752,11 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                 ),
 
               ElevatedButton(
-                onPressed: _isGenerating || hasInvalidCustomDistance
-                    ? null
-                    : _handleGenerateRoutes,
+                onPressed: _isGenerating
+                    ? () => _cancelActiveGeneration()
+                    : hasInvalidCustomDistance
+                        ? null
+                        : _handleGenerateRoutes,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: KaripaPalette.coral,
                   foregroundColor: KaripaPalette.midnight,
@@ -660,15 +769,10 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                     ? const Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                                color: KaripaPalette.midnight, strokeWidth: 2),
-                          ),
+                          Icon(Icons.cancel_outlined, size: 20),
                           SizedBox(width: 12),
                           Flexible(
-                            child: Text('Generating & Ranking Routes...',
+                            child: Text('Cancel Generation',
                                 style: TextStyle(fontWeight: FontWeight.bold)),
                           ),
                         ],

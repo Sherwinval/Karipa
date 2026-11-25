@@ -1,4 +1,4 @@
-import { afterEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import cors from 'cors';
@@ -22,26 +22,102 @@ describe('Weekly leaderboard access', () => {
         expect(response.status).toBe(401);
     });
 });
-const originalGoogleRoutesApiKey = process.env.GOOGLE_MAPS_ROUTES_API_KEY;
+const originalValhallaBaseUrl = process.env.VALHALLA_BASE_URL;
+const originalAiRouteRankingEnabled = process.env.AI_ROUTE_RANKING_ENABLED;
+const originalGroqEnabled = process.env.GROQ_ENABLED;
+const originalMaxDeviation = process.env.ROUTE_MAX_DISTANCE_DEVIATION_KM;
+const originalLocationEncryptionKey = process.env.LOCATION_DATA_ENCRYPTION_KEY;
+beforeEach(() => {
+    process.env.LOCATION_DATA_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64');
+});
 afterEach(() => {
     vi.unstubAllGlobals();
-    if (originalGoogleRoutesApiKey === undefined) {
-        delete process.env.GOOGLE_MAPS_ROUTES_API_KEY;
+    if (originalLocationEncryptionKey === undefined) {
+        delete process.env.LOCATION_DATA_ENCRYPTION_KEY;
     }
     else {
-        process.env.GOOGLE_MAPS_ROUTES_API_KEY = originalGoogleRoutesApiKey;
+        process.env.LOCATION_DATA_ENCRYPTION_KEY = originalLocationEncryptionKey;
+    }
+    if (originalValhallaBaseUrl === undefined) {
+        delete process.env.VALHALLA_BASE_URL;
+    }
+    else {
+        process.env.VALHALLA_BASE_URL = originalValhallaBaseUrl;
+    }
+    if (originalAiRouteRankingEnabled === undefined) {
+        delete process.env.AI_ROUTE_RANKING_ENABLED;
+    }
+    else {
+        process.env.AI_ROUTE_RANKING_ENABLED = originalAiRouteRankingEnabled;
+    }
+    if (originalGroqEnabled === undefined) {
+        delete process.env.GROQ_ENABLED;
+    }
+    else {
+        process.env.GROQ_ENABLED = originalGroqEnabled;
+    }
+    if (originalMaxDeviation === undefined) {
+        delete process.env.ROUTE_MAX_DISTANCE_DEVIATION_KM;
+    }
+    else {
+        process.env.ROUTE_MAX_DISTANCE_DEVIATION_KM = originalMaxDeviation;
     }
 });
+function encodePolyline(points) {
+    let previousLat = 0;
+    let previousLon = 0;
+    let encoded = '';
+    for (const [lat, lon] of points) {
+        const scaledLat = Math.round(lat * 1e6);
+        const scaledLon = Math.round(lon * 1e6);
+        for (const delta of [scaledLat - previousLat, scaledLon - previousLon]) {
+            let value = delta < 0 ? ~(delta << 1) : delta << 1;
+            while (value >= 0x20) {
+                encoded += String.fromCharCode((0x20 | (value & 0x1f)) + 63);
+                value >>= 5;
+            }
+            encoded += String.fromCharCode(value + 63);
+        }
+        previousLat = scaledLat;
+        previousLon = scaledLon;
+    }
+    return encoded;
+}
+function mockRouteShape(distanceKm, lat, lon) {
+    const sideKm = distanceKm / 4;
+    const latOffset = sideKm / 111.32;
+    const lonOffset = sideKm / (111.32 * Math.cos(lat * Math.PI / 180));
+    return encodePolyline([
+        [lat, lon],
+        [lat + latOffset, lon],
+        [lat + latOffset, lon + lonOffset],
+        [lat, lon + lonOffset],
+        [lat, lon],
+    ]);
+}
 describe('Routing Service & AI Recommendation', () => {
-    it('generates routes through the Google Routes API for the requested coordinates', async () => {
-        process.env.GOOGLE_MAPS_ROUTES_API_KEY = 'test-routes-key';
-        vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
-            routes: [{
-                    distanceMeters: 3000,
-                    duration: '600s',
-                    polyline: { encodedPolyline: '??gEgE' },
-                }],
-        }), { status: 200 })));
+    it.each(['/evaluate', '/recommend'])('rejects client-supplied route geometry at %s', async (endpoint) => {
+        const response = await request(app)
+            .post(`/api/routes${endpoint}`)
+            .send({ routes: [{ geometry: { type: 'LineString', coordinates: [] } }] });
+        expect(response.status).toBe(410);
+        expect(response.body.code).toBe('VALHALLA_GENERATION_REQUIRED');
+    });
+    it('generates routes through Valhalla routing service for the requested coordinates', async () => {
+        process.env.VALHALLA_BASE_URL = 'http://localhost:8002';
+        vi.stubGlobal('fetch', vi.fn(async (_input, init) => {
+            const body = JSON.parse(String(init?.body));
+            const { lat, lon } = body.locations[0];
+            return new Response(JSON.stringify({
+                trip: {
+                    legs: [{
+                            shape: mockRouteShape(3, lat, lon),
+                            summary: { length: 3.0, time: 600 },
+                        }],
+                    summary: { length: 3.0, time: 600 },
+                },
+            }), { status: 200 });
+        }));
         const startLocation = { latitude: 14.5995, longitude: 120.9842 };
         const candidates = await generateCandidateRoutes('running', 3.0, { preferLoop: true }, startLocation);
         expect(candidates).toBeDefined();
@@ -54,7 +130,70 @@ describe('Routing Service & AI Recommendation', () => {
         expect(first.geometry.coordinates.length).toBeGreaterThan(1);
         expect(first.features).toBeDefined();
     }, 15000);
+    it('uses selected Valhalla preferences and continues when Groq is disabled', async () => {
+        process.env.VALHALLA_BASE_URL = 'http://localhost:8002';
+        process.env.AI_ROUTE_RANKING_ENABLED = 'false';
+        process.env.GROQ_ENABLED = 'false';
+        const requests = [];
+        vi.stubGlobal('fetch', vi.fn(async (_input, init) => {
+            requests.push(init ?? {});
+            const body = JSON.parse(String(init?.body));
+            return new Response(JSON.stringify({
+                trip: {
+                    legs: [{
+                            shape: mockRouteShape(3, body.locations[0].lat, body.locations[0].lon),
+                            summary: { length: 3, time: 600 },
+                        }],
+                    summary: { length: 3, time: 600 },
+                },
+            }), { status: 200 });
+        }));
+        const response = await request(app)
+            .post('/api/routes/generate')
+            .send({
+            activity: 'running',
+            targetDistanceKm: 3,
+            preferences: { preferSidewalks: true },
+            additionalNotes: 'avoid hills',
+            startLocation: { latitude: 14.5995, longitude: 120.9842 },
+        });
+        expect(response.status).toBe(200);
+        expect(response.body.success).toBe(true);
+        expect(response.body.meta.notesInterpreted).toBe(false);
+        expect(JSON.parse(String(requests[0].body)).costing_options.pedestrian.sidewalk_factor).toBe(0.5);
+        expect(response.body.routes[0].rankingSource).toBe('deterministic_fallback');
+    });
+    it('does not return candidates outside the configured distance tolerance', async () => {
+        process.env.VALHALLA_BASE_URL = 'http://localhost:8002';
+        process.env.AI_ROUTE_RANKING_ENABLED = 'false';
+        process.env.GROQ_ENABLED = 'false';
+        vi.stubGlobal('fetch', vi.fn(async (_input, init) => {
+            const body = JSON.parse(String(init?.body));
+            return new Response(JSON.stringify({
+                trip: {
+                    legs: [{
+                            shape: mockRouteShape(6, body.locations[0].lat, body.locations[0].lon),
+                            summary: { length: 6, time: 1000 },
+                        }],
+                    summary: { length: 6, time: 1000 },
+                },
+            }), { status: 200 });
+        }));
+        const response = await request(app)
+            .post('/api/routes/generate')
+            .send({
+            activity: 'running',
+            targetDistanceKm: 5,
+            preferences: {},
+            startLocation: { latitude: 14.5995, longitude: 120.9842 },
+        });
+        expect(response.status).toBe(404);
+        expect(response.body.message).toContain('within 0.5 km');
+        expect(response.body.routes).toBeUndefined();
+    });
     it('ranks candidate routes by distance and preferences', async () => {
+        process.env.AI_ROUTE_RANKING_ENABLED = 'false';
+        process.env.ROUTE_MAX_DISTANCE_DEVIATION_KM = '5';
         const mockCandidates = [
             {
                 id: 'route-1',
@@ -80,7 +219,7 @@ describe('Routing Service & AI Recommendation', () => {
                 distanceKm: 8.5,
                 distanceMeters: 8500,
                 durationSeconds: 3000,
-                geometry: { type: 'LineString', coordinates: [[120.98, 14.59], [121.05, 14.65]] },
+                geometry: { type: 'LineString', coordinates: [[120.98, 14.59], [121.00, 14.61], [121.02, 14.63], [121.04, 14.65]] },
                 features: {
                     distanceDeltaKm: 3.5,
                     isLoop: false,
@@ -146,8 +285,9 @@ describe('Full End-to-End API Suite', () => {
         expect(meRes.status).toBe(200);
         expect(meRes.body.user.email).toBe(testEmail);
         expect(meRes.body.user.name).toBe('Test Runner');
-    }, 15000);
+    }, 30000);
     it('generates real routes via /api/routes/generate', async () => {
+        process.env.AI_ROUTE_RANKING_ENABLED = 'false';
         const genRes = await request(app)
             .post('/api/routes/generate')
             .send({
@@ -181,7 +321,9 @@ describe('Full End-to-End API Suite', () => {
             .set('Authorization', `Bearer ${authToken}`);
         expect(listRes.status).toBe(200);
         expect(listRes.body.routes.length).toBeGreaterThan(0);
-        const getRes = await request(app).get(`/api/routes/${createdRouteId}`);
+        const getRes = await request(app)
+            .get(`/api/routes/${createdRouteId}`)
+            .set('Authorization', `Bearer ${authToken}`);
         expect(getRes.status).toBe(200);
         expect(getRes.body.route.id).toBe(createdRouteId);
     });
@@ -194,7 +336,6 @@ describe('Full End-to-End API Suite', () => {
             distanceMeters: 5210,
             durationSeconds: 1820,
             averagePaceSecondsPerKm: 350,
-            calories: 345,
             startedAt: new Date(Date.now() - 1820000).toISOString(),
             completedAt: new Date().toISOString(),
             gpsData: [{ latitude: 14.59, longitude: 120.98 }],

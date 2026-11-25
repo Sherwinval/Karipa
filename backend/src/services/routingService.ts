@@ -1,3 +1,5 @@
+import { globalRouteQueue } from './routeQueueService.js';
+
 export interface StartLocation {
   latitude: number;
   longitude: number;
@@ -42,6 +44,7 @@ const MAX_SUMMARY_GEOMETRY_DRIFT_RATIO = 0.15;
 export interface CandidateGenerationOptions {
   additionalScales?: number[];
   onlyAdditionalScales?: boolean;
+  targetDistanceToleranceKm?: number;
 }
 
 export class RoutingServiceError extends Error {
@@ -55,7 +58,10 @@ export class RoutingServiceError extends Error {
   }
 }
 
-export function getMaximumDistanceDeviationKm(): number {
+export function getMaximumDistanceDeviationKm(overrideToleranceKm?: number): number {
+  if (typeof overrideToleranceKm === 'number' && Number.isFinite(overrideToleranceKm) && overrideToleranceKm > 0) {
+    return overrideToleranceKm;
+  }
   const configuredValue = process.env.ROUTE_MAX_DISTANCE_DEVIATION_KM?.trim();
   if (!configuredValue) return DEFAULT_MAX_DISTANCE_DEVIATION_KM;
 
@@ -124,6 +130,23 @@ function geometryFingerprint(coordinates: [number, number][]): string {
   return samples.join(';') < reversed.join(';') ? samples.join(';') : reversed.join(';');
 }
 
+function averageSampleSeparationKm(
+  first: [number, number][],
+  second: [number, number][],
+): number {
+  const sampleCount = Math.min(12, first.length, second.length);
+  if (sampleCount === 0) return 0;
+  let separation = 0;
+  for (let index = 0; index < sampleCount; index++) {
+    const firstIndex = Math.round(index * (first.length - 1) / (sampleCount - 1));
+    const secondIndex = Math.round(index * (second.length - 1) / (sampleCount - 1));
+    const firstCoordinate = first[firstIndex];
+    const secondCoordinate = second[secondIndex];
+    separation += haversineDistanceKm(firstCoordinate, secondCoordinate);
+  }
+  return separation / sampleCount;
+}
+
 /**
  * Treat the routing engine's distance as authoritative; never qualify a route
  * from its requested waypoints or its rounded display distance.
@@ -131,11 +154,11 @@ function geometryFingerprint(coordinates: [number, number][]): string {
 export function validateAndDeduplicateCandidateRoutes(
   routes: CandidateRoute[],
   targetDistanceKm: number,
-  options: { enforceDistanceTolerance?: boolean } = {},
+  options: { enforceDistanceTolerance?: boolean; targetDistanceToleranceKm?: number } = {},
 ): CandidateRoute[] {
   if (!Number.isFinite(targetDistanceKm) || targetDistanceKm <= 0) return [];
 
-  const maximumDistanceDeviationKm = getMaximumDistanceDeviationKm();
+  const maximumDistanceDeviationKm = getMaximumDistanceDeviationKm(options.targetDistanceToleranceKm);
   const seenGeometries = new Set<string>();
   const seenIds = new Set<string>();
   const validRoutes: CandidateRoute[] = [];
@@ -169,6 +192,12 @@ export function validateAndDeduplicateCandidateRoutes(
 
     const fingerprint = geometryFingerprint(route.geometry.coordinates);
     if (seenGeometries.has(fingerprint)) continue;
+    if (validRoutes.some((selected) =>
+      averageSampleSeparationKm(
+        route.geometry.coordinates,
+        selected.geometry.coordinates,
+      ) < 0.10
+    )) continue;
     seenGeometries.add(fingerprint);
     seenIds.add(route.id);
     const features = route.features ?? {} as CandidateRoute['features'];
@@ -309,6 +338,7 @@ async function callValhalla(
   activity: string,
   coordinates: [number, number][], // [lat, lon] pairs
   preferences: RoutePreferences,
+  options: { jobId?: string; signal?: AbortSignal } = {},
 ): Promise<{ distanceMeters: number; durationSeconds: number; coordinates: [number, number][] } | null> {
   const baseUrl = process.env.VALHALLA_BASE_URL?.trim();
   if (!baseUrl) {
@@ -319,193 +349,201 @@ async function callValhalla(
     );
   }
 
-  const costing = valhallaCosting(activity);
-
-  // First and last locations are "break" (stop/leg boundary);
-  // intermediate locations are "through" (pass-through waypoints).
-  const locations = coordinates.map((coord, index) => {
-    const isEndpoint = index === 0 || index === coordinates.length - 1;
-    return toValhallaLocation(coord, isEndpoint ? 'break' : 'through');
-  });
-
-  const costingOptions: Record<string, number> = {};
-  if (preferences.avoidHills) costingOptions.use_hills = 0.2;
-  if (costing === 'pedestrian' && preferences.preferSidewalks) {
-    costingOptions.sidewalk_factor = 0.5;
-  }
-  if (costing === 'bicycle' && preferences.avoidMajorRoads) {
-    costingOptions.use_roads = 0.2;
-  }
-  if (costing === 'bicycle' && preferences.preferCyclingInfrastructure) {
-    costingOptions.use_roads = Math.min(costingOptions.use_roads ?? 1, 0.3);
-    costingOptions.use_trails = 0.7;
-  }
-
-  const requestBody = {
-    locations,
-    costing,
-    ...(Object.keys(costingOptions).length > 0 && {
-      costing_options: { [costing]: costingOptions },
-    }),
-    units: 'kilometers',
-    directions_type: 'none', // Only need shape and summary, not turn-by-turn
-  };
-
-  let response: Response;
-  try {
-    response = await fetch(`${baseUrl}/route`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestBody),
-      signal: AbortSignal.timeout(10000),
+  const performFetch = async (signal?: AbortSignal) => {
+    const costing = valhallaCosting(activity);
+    const locations = coordinates.map((coord, index) => {
+      const isEndpoint = index === 0 || index === coordinates.length - 1;
+      return toValhallaLocation(coord, isEndpoint ? 'break' : 'through');
     });
-  } catch (error) {
+
+    const costingOptions: Record<string, number> = {};
+    if (preferences.avoidHills) costingOptions.use_hills = 0.2;
+    if (costing === 'pedestrian' && preferences.preferSidewalks) {
+      costingOptions.sidewalk_factor = 0.5;
+    }
+    if (costing === 'bicycle' && preferences.avoidMajorRoads) {
+      costingOptions.use_roads = 0.2;
+    }
+    if (costing === 'bicycle' && preferences.preferCyclingInfrastructure) {
+      costingOptions.use_roads = Math.min(costingOptions.use_roads ?? 1, 0.3);
+      costingOptions.use_trails = 0.7;
+    }
+
+    const requestBody = {
+      locations,
+      costing,
+      ...(Object.keys(costingOptions).length > 0 && {
+        costing_options: { [costing]: costingOptions },
+      }),
+      units: 'kilometers',
+      directions_type: 'none',
+    };
+
+    let response: Response;
+    try {
+      response = await fetch(`${baseUrl}/route`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+        signal: signal ?? options.signal ?? AbortSignal.timeout(10000),
+      });
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.name === 'AbortError' || error.name === 'TimeoutError')
+      ) {
+        throw new RoutingServiceError(
+          'Valhalla routing service timed out. Retry route planning.',
+          504,
+          'TIMEOUT',
+        );
+      }
+      throw new RoutingServiceError(
+        'Could not connect to Valhalla routing service.',
+        503,
+        'NETWORK_ERROR',
+      );
+    }
+
+    if (response.status === 429) {
+      const retryAfter = response.headers.get('Retry-After');
+      globalRouteQueue.handleRateLimit429(retryAfter);
+      throw new RoutingServiceError(
+        'Valhalla routing service rate limit exceeded. Please retry in a few moments.',
+        429,
+        'RATE_LIMIT_EXCEEDED',
+      );
+    }
+
+    let rawPayload: unknown;
+    try {
+      rawPayload = await response.json();
+    } catch {
+      throw new RoutingServiceError(
+        'Valhalla returned an unreadable response.',
+        502,
+        'INVALID_RESPONSE',
+      );
+    }
+    if (!rawPayload || typeof rawPayload !== 'object') {
+      throw new RoutingServiceError(
+        'Valhalla returned an invalid response.',
+        502,
+        'INVALID_RESPONSE',
+      );
+    }
+    const payload = rawPayload as ValhallaResponse;
+
+    if (!response.ok) {
+      const errorCode = payload.error_code;
+      const errorMessage = payload.error ?? 'Unknown routing error';
+
+      if (errorCode === 170 || errorCode === 171 || errorCode === 442) {
+        const activityLabel = costing === 'bicycle' ? 'cycling' : 'walking';
+        throw new RoutingServiceError(
+          `No ${activityLabel} route is available for this area.`,
+          404,
+          'ROUTE_NOT_FOUND',
+        );
+      }
+
+      if (errorCode === 154) {
+        throw new RoutingServiceError(
+          'The requested route distance exceeds the routing service limit. Try a shorter distance.',
+          400,
+          'DISTANCE_EXCEEDED',
+        );
+      }
+
+      throw new RoutingServiceError(
+        `Valhalla routing service error: ${errorMessage}`,
+        response.status >= 400 && response.status < 600 ? response.status : 502,
+        `VALHALLA_${errorCode ?? 'ERROR'}`,
+      );
+    }
+
+    const trip = payload.trip;
     if (
-      error instanceof Error &&
-      (error.name === 'AbortError' || error.name === 'TimeoutError')
+      !trip?.legs ||
+      trip.legs.length === 0 ||
+      trip.legs.some((leg) => !leg || typeof leg !== 'object' ||
+        (leg.shape !== undefined && typeof leg.shape !== 'string'))
     ) {
       throw new RoutingServiceError(
-        'Valhalla routing service timed out. Retry route planning.',
-        504,
-        'TIMEOUT',
+        'Valhalla returned no route geometry for this request.',
+        502,
+        'INVALID_RESPONSE',
       );
     }
-    throw new RoutingServiceError(
-      'Could not connect to Valhalla routing service.',
-      503,
-      'NETWORK_ERROR',
-    );
-  }
 
-  let rawPayload: unknown;
-  try {
-    rawPayload = await response.json();
-  } catch {
-    throw new RoutingServiceError(
-      'Valhalla returned an unreadable response.',
-      502,
-      'INVALID_RESPONSE',
-    );
-  }
-  if (!rawPayload || typeof rawPayload !== 'object') {
-    throw new RoutingServiceError(
-      'Valhalla returned an invalid response.',
-      502,
-      'INVALID_RESPONSE',
-    );
-  }
-  const payload = rawPayload as ValhallaResponse;
+    let allCoordinates: [number, number][] = [];
+    for (const leg of trip.legs) {
+      if (!leg.shape) continue;
+      const legCoords = decodeValhallaPolyline(leg.shape);
+      if (allCoordinates.length > 0 && legCoords.length > 0) {
+        allCoordinates = allCoordinates.concat(legCoords.slice(1));
+      } else {
+        allCoordinates = allCoordinates.concat(legCoords);
+      }
+    }
 
-  if (!response.ok) {
-    const errorCode = payload.error_code;
-    const errorMessage = payload.error ?? 'Unknown routing error';
+    const distanceKm = trip.summary?.length;
+    const durationSeconds = trip.summary?.time;
 
-    // Error codes 170/171: No path could be found for the input
-    if (errorCode === 170 || errorCode === 171 || errorCode === 442) {
-      const activityLabel = costing === 'bicycle' ? 'cycling' : 'walking';
+    if (!Number.isFinite(distanceKm) || !distanceKm || distanceKm <= 0) {
       throw new RoutingServiceError(
-        `No ${activityLabel} route is available for this area.`,
-        404,
-        'ROUTE_NOT_FOUND',
+        'Valhalla returned an invalid route distance.',
+        502,
+        'INVALID_RESPONSE',
       );
     }
-
-    // Error code 154: Path distance exceeds max limit
-    if (errorCode === 154) {
+    if (!Number.isFinite(durationSeconds) || !durationSeconds || durationSeconds <= 0) {
       throw new RoutingServiceError(
-        'The requested route distance exceeds the routing service limit. Try a shorter distance.',
-        400,
-        'DISTANCE_EXCEEDED',
+        'Valhalla returned an invalid route duration.',
+        502,
+        'INVALID_RESPONSE',
+      );
+    }
+    if (!isValidGeometry(allCoordinates)) {
+      throw new RoutingServiceError(
+        'Valhalla returned invalid or discontinuous route geometry.',
+        502,
+        'INVALID_GEOMETRY',
+      );
+    }
+    const shapeDistanceKm = geometryDistanceKm(allCoordinates);
+    const distanceDriftRatio = Math.abs(shapeDistanceKm - distanceKm) / distanceKm;
+    if (distanceDriftRatio > MAX_SUMMARY_GEOMETRY_DRIFT_RATIO) {
+      throw new RoutingServiceError(
+        'Valhalla route geometry does not match its reported distance closely enough to be considered factual.',
+        502,
+        'DISTANCE_GEOMETRY_MISMATCH',
+      );
+    }
+    const start = coordinates[0];
+    if (
+      haversineDistanceKm(start, [allCoordinates[0][1], allCoordinates[0][0]]) > 0.5 ||
+      haversineDistanceKm(start, [
+        allCoordinates[allCoordinates.length - 1][1],
+        allCoordinates[allCoordinates.length - 1][0],
+      ]) > 0.5
+    ) {
+      throw new RoutingServiceError(
+        'Valhalla could not snap both route endpoints near the requested start location.',
+        422,
+        'ENDPOINT_SNAP_FAILED',
       );
     }
 
-    throw new RoutingServiceError(
-      `Valhalla routing service error: ${errorMessage}`,
-      response.status >= 400 && response.status < 600 ? response.status : 502,
-      `VALHALLA_${errorCode ?? 'ERROR'}`,
-    );
-  }
-
-  const trip = payload.trip;
-  if (
-    !trip?.legs ||
-    trip.legs.length === 0 ||
-    trip.legs.some((leg) => !leg || typeof leg !== 'object' ||
-      (leg.shape !== undefined && typeof leg.shape !== 'string'))
-  ) {
-    throw new RoutingServiceError(
-      'Valhalla returned no route geometry for this request.',
-      502,
-      'INVALID_RESPONSE',
-    );
-  }
-
-  // Combine decoded shape from all legs (handles multi-leg responses)
-  let allCoordinates: [number, number][] = [];
-  for (const leg of trip.legs) {
-    if (!leg.shape) continue;
-    const legCoords = decodeValhallaPolyline(leg.shape);
-    if (allCoordinates.length > 0 && legCoords.length > 0) {
-      // Skip first point of subsequent legs to avoid duplicate junction points
-      allCoordinates = allCoordinates.concat(legCoords.slice(1));
-    } else {
-      allCoordinates = allCoordinates.concat(legCoords);
-    }
-  }
-
-  const distanceKm = trip.summary?.length;
-  const durationSeconds = trip.summary?.time;
-
-  if (!Number.isFinite(distanceKm) || !distanceKm || distanceKm <= 0) {
-    throw new RoutingServiceError(
-      'Valhalla returned an invalid route distance.',
-      502,
-      'INVALID_RESPONSE',
-    );
-  }
-  if (!Number.isFinite(durationSeconds) || !durationSeconds || durationSeconds <= 0) {
-    throw new RoutingServiceError(
-      'Valhalla returned an invalid route duration.',
-      502,
-      'INVALID_RESPONSE',
-    );
-  }
-  if (!isValidGeometry(allCoordinates)) {
-    throw new RoutingServiceError(
-      'Valhalla returned invalid or discontinuous route geometry.',
-      502,
-      'INVALID_GEOMETRY',
-    );
-  }
-  const shapeDistanceKm = geometryDistanceKm(allCoordinates);
-  const distanceDriftRatio = Math.abs(shapeDistanceKm - distanceKm) / distanceKm;
-  if (distanceDriftRatio > MAX_SUMMARY_GEOMETRY_DRIFT_RATIO) {
-    throw new RoutingServiceError(
-      'Valhalla route geometry does not match its reported distance closely enough to be considered factual.',
-      502,
-      'DISTANCE_GEOMETRY_MISMATCH',
-    );
-  }
-  const start = coordinates[0];
-  if (
-    haversineDistanceKm(start, [allCoordinates[0][1], allCoordinates[0][0]]) > 0.5 ||
-    haversineDistanceKm(start, [
-      allCoordinates[allCoordinates.length - 1][1],
-      allCoordinates[allCoordinates.length - 1][0],
-    ]) > 0.5
-  ) {
-    throw new RoutingServiceError(
-      'Valhalla could not snap both route endpoints near the requested start location.',
-      422,
-      'ENDPOINT_SNAP_FAILED',
-    );
-  }
-
-  return {
-    distanceMeters: Math.round(distanceKm * 1000),
-    durationSeconds: Math.round(durationSeconds),
-    coordinates: allCoordinates,
+    return {
+      distanceMeters: Math.round(distanceKm * 1000),
+      durationSeconds: Math.round(durationSeconds),
+      coordinates: allCoordinates,
+    };
   };
+
+  const activeJobId = options.jobId || globalRouteQueue.createJob().id;
+  return globalRouteQueue.enqueue(activeJobId, (signal) => performFetch(signal));
 }
 
 export async function generateCandidateRoutes(
@@ -513,80 +551,135 @@ export async function generateCandidateRoutes(
   targetDistanceKm: number,
   preferences: RoutePreferences,
   startLocation: StartLocation,
-  options: CandidateGenerationOptions = {},
+  options: CandidateGenerationOptions & { jobId?: string } = {},
 ): Promise<CandidateRoute[]> {
+  const cacheKey = globalRouteQueue.generateCacheKey(
+    activity,
+    targetDistanceKm,
+    startLocation,
+    preferences,
+    options,
+  );
+
+  const cachedRoutes = globalRouteQueue.getCachedRoute<CandidateRoute[]>(cacheKey, startLocation);
+  if (cachedRoutes && cachedRoutes.length > 0) {
+    return cachedRoutes;
+  }
+
   const start: [number, number] = [startLocation.latitude, startLocation.longitude];
-  const additionalScales = [...new Set(
-    (options.additionalScales ?? [])
-      .filter((scale) => APPROVED_ADJUSTMENT_SCALES.has(scale)),
-  )].slice(0, 2);
-  const constructionScales = options.onlyAdditionalScales
-    ? additionalScales
-    : [...CANDIDATE_SCALES, ...additionalScales];
-  const candidateConfigs = constructionScales.flatMap((scale) => {
-    const constructionDistanceKm = targetDistanceKm * scale;
-    const loopRadiusKm = Math.max(0.1, constructionDistanceKm / (2 * Math.PI));
-    const outAndBackRadiusKm = Math.max(0.15, (constructionDistanceKm / 2) * 0.9);
-    const bearings = [30, 120, 210, 300];
-    const loopPoints = bearings.map((bearing) => destinationPoint(...start, loopRadiusKm, bearing));
-    const outAndBackPoint = destinationPoint(...start, outAndBackRadiusKm, 45);
+  const activeJobId = options.jobId || globalRouteQueue.createJob().id;
+  const toleranceKm = getMaximumDistanceDeviationKm(options.targetDistanceToleranceKm);
 
-    return [
-      { name: 'Generated loop', coords: [start, ...loopPoints, start], isLoop: true },
-      { name: 'Generated out-and-back', coords: [start, outAndBackPoint, start], isLoop: false },
-    ].map((candidate) => ({
-      ...candidate,
-      name: `Valhalla ${candidate.name} (${scale}x)`,
+  let stages: number[][];
+  if (options.onlyAdditionalScales && options.additionalScales?.length) {
+    stages = [options.additionalScales];
+  } else if (options.additionalScales?.length) {
+    stages = [[1.0], options.additionalScales];
+  } else {
+    stages = [[1.0], [0.75, 1.25], [0.9, 1.1]];
+  }
+
+  const accumulatedRawResults: Array<{ config: { name: string; isLoop: boolean }; route: any }> = [];
+  const failures: PromiseRejectedResult[] = [];
+
+  for (let stageIdx = 0; stageIdx < stages.length; stageIdx++) {
+    const activeJob = globalRouteQueue.getJob(activeJobId);
+    if (!activeJob || activeJob.status === 'cancelled' || activeJob.status === 'expired') {
+      return [];
+    }
+
+    const stageScales = stages[stageIdx];
+    const stageConfigs = stageScales.flatMap((scale) => {
+      const constructionDistanceKm = targetDistanceKm * scale;
+      const loopRadiusKm = Math.max(0.1, constructionDistanceKm / (2 * Math.PI));
+      const outAndBackRadiusKm = Math.max(0.15, (constructionDistanceKm / 2) * 0.9);
+      const bearings = [30, 120, 210, 300];
+      const loopPoints = bearings.map((bearing) => destinationPoint(...start, loopRadiusKm, bearing));
+      const outAndBackPoint = destinationPoint(...start, outAndBackRadiusKm, 45);
+
+      return [
+        { name: 'Generated loop', coords: [start, ...loopPoints, start], isLoop: true },
+        { name: 'Generated out-and-back', coords: [start, outAndBackPoint, start], isLoop: false },
+      ].map((candidate) => ({
+        ...candidate,
+        name: `Valhalla ${candidate.name} (${scale}x)`,
+      }));
+    });
+
+    const results = await Promise.allSettled(
+      stageConfigs.map(async (config) => ({
+        config,
+        route: await callValhalla(activity, config.coords, preferences, { jobId: activeJobId }),
+      })),
+    );
+
+    for (const result of results) {
+      if (result.status === 'fulfilled' && result.value.route) {
+        accumulatedRawResults.push(result.value);
+      } else if (result.status === 'rejected') {
+        failures.push(result);
+      }
+    }
+
+    // Convert accumulated raw results to candidate routes and validate/deduplicate
+    const candidates: CandidateRoute[] = accumulatedRawResults.map(({ config, route }, idx) => ({
+      id: `route-${idx + 1}`,
+      name: config.name,
+      activityType: activity,
+      distanceKm: route.distanceMeters / 1000,
+      distanceMeters: route.distanceMeters,
+      durationSeconds: Math.round(route.durationSeconds),
+      geometry: {
+        type: 'LineString',
+        coordinates: route.coordinates,
+      },
+      features: {
+        distanceDeltaKm: Number(Math.abs(route.distanceMeters / 1000 - targetDistanceKm).toFixed(2)),
+        isLoop: config.isLoop,
+        roadTypes: [],
+      },
     }));
-  });
 
-  const results = await Promise.allSettled(
-    candidateConfigs.map(async (config) => ({
-      config,
-      route: await callValhalla(activity, config.coords, preferences),
-    })),
-  );
-  const successfulResults = results.flatMap((result) =>
-    result.status === 'fulfilled' && result.value.route ? [result.value] : [],
-  );
-  const failures = results.filter(
-    (result): result is PromiseRejectedResult => result.status === 'rejected',
-  );
-  if (successfulResults.length > 0 && failures.length > 0) {
-    console.warn(`Valhalla returned ${successfulResults.length} candidates; ${failures.length} candidate requests failed.`);
-  }
-  if (successfulResults.length === 0 && failures.length > 0) {
-    throw failures[0].reason;
-  }
+    const validCandidates = validateAndDeduplicateCandidateRoutes(candidates, targetDistanceKm, {
+      enforceDistanceTolerance: false,
+      targetDistanceToleranceKm: toleranceKm,
+    });
 
-  const candidates: CandidateRoute[] = [];
-  for (const { config, route } of successfulResults) {
-    if (route && route.coordinates.length >= 2) {
-      const distanceMeters = route.distanceMeters;
-      const distanceKm = distanceMeters / 1000;
-      const durationSeconds = Math.round(route.durationSeconds);
+    const acceptableCandidates = validCandidates.filter(
+      (c) => Math.abs(c.distanceKm - targetDistanceKm) <= toleranceKm,
+    ).filter((candidate) => {
+      if (preferences.preferLoop && !candidate.features.isLoop) return false;
+      if (activity.toLowerCase() === 'cycling' && preferences.avoidMajorRoads &&
+        candidate.features.majorRoadRatio !== undefined &&
+        candidate.features.majorRoadRatio >= 0.15) return false;
+      if (preferences.preferSidewalks &&
+        candidate.features.sidewalkRatio !== undefined &&
+        candidate.features.sidewalkRatio < 0.5) return false;
+      if (activity.toLowerCase() === 'cycling' && preferences.preferCyclingInfrastructure &&
+        candidate.features.cyclingLaneRatio !== undefined &&
+        candidate.features.cyclingLaneRatio < 0.5) return false;
+      return true;
+    }).slice(0, 5);
 
-      candidates.push({
-        id: `route-${candidates.length + 1}`,
-        name: config.name,
-        activityType: activity,
-        distanceKm,
-        distanceMeters,
-        durationSeconds,
-        geometry: {
-          type: 'LineString',
-          coordinates: route.coordinates,
-        },
-        features: {
-          distanceDeltaKm: Number(Math.abs(distanceKm - targetDistanceKm).toFixed(2)),
-          isLoop: config.isLoop,
-          roadTypes: [],
-        },
-      });
+    // Stop early if we have at least 5 acceptable candidates or reached last stage
+    if (acceptableCandidates.length >= 5 || stageIdx === stages.length - 1) {
+      const activeJobAfterStage = globalRouteQueue.getJob(activeJobId);
+      if (!activeJobAfterStage || activeJobAfterStage.status === 'cancelled' || activeJobAfterStage.status === 'expired') {
+        return [];
+      }
+      const bestValidCandidates = validCandidates.slice(0, 5);
+      if (bestValidCandidates.length > 0) {
+        globalRouteQueue.setCachedRoute(cacheKey, startLocation, bestValidCandidates);
+      } else if (failures.length > 0 && accumulatedRawResults.length === 0) {
+        throw failures[0].reason;
+      }
+      return bestValidCandidates;
     }
   }
 
-  return validateAndDeduplicateCandidateRoutes(candidates, targetDistanceKm, {
-    enforceDistanceTolerance: false,
-  });
+  if (failures.length > 0 && accumulatedRawResults.length === 0) {
+    throw failures[0].reason;
+  }
+
+  return [];
 }

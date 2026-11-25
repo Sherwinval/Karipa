@@ -1,5 +1,5 @@
 import { validateAndDeduplicateCandidateRoutes, } from './routingService.js';
-import { rankRouteCandidateIds, } from './geminiService.js';
+import { evaluateRouteCandidates, isGroqEnabled, } from './groqService.js';
 function ratio(value) {
     return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0;
 }
@@ -31,10 +31,12 @@ function preferenceScore(route, preferences, activity) {
     }
     return criteria === 0 ? 0.5 : score / criteria;
 }
-export async function rankCandidateRoutes(activity, targetDistanceKm, preferences, routes, aiRanker = rankRouteCandidateIds) {
+export async function rankCandidateRoutes(activity, targetDistanceKm, preferences, routes, aiRanker = evaluateRouteCandidates, targetDistanceToleranceKm) {
     if (!Number.isFinite(targetDistanceKm) || targetDistanceKm <= 0)
         return [];
-    const validatedRoutes = validateAndDeduplicateCandidateRoutes(routes, targetDistanceKm);
+    const validatedRoutes = validateAndDeduplicateCandidateRoutes(routes, targetDistanceKm, {
+        targetDistanceToleranceKm,
+    });
     if (validatedRoutes.length === 0)
         return [];
     const scored = validatedRoutes.map((route) => {
@@ -49,60 +51,57 @@ export async function rankCandidateRoutes(activity, targetDistanceKm, preference
         };
     });
     let aiOrder;
-    let aiResolvedTie = false;
-    if (process.env.AI_ROUTE_RANKING_ENABLED?.trim().toLowerCase() !== 'false') {
-        const primaryOrder = [...scored].sort((a, b) => a.distanceDeltaKm - b.distanceDeltaKm ||
-            b.preferenceScore - a.preferenceScore ||
-            a.route.id.localeCompare(b.route.id));
-        const tiedGroups = [];
-        for (const item of primaryOrder) {
-            const currentGroup = tiedGroups[tiedGroups.length - 1];
-            if (currentGroup &&
-                currentGroup[0].distanceDeltaKm === item.distanceDeltaKm &&
-                currentGroup[0].preferenceScore === item.preferenceScore) {
-                currentGroup.push(item);
+    let aiReasons;
+    let distanceInsight;
+    if (process.env.AI_ROUTE_RANKING_ENABLED?.trim().toLowerCase() !== 'false' &&
+        (aiRanker !== evaluateRouteCandidates || isGroqEnabled())) {
+        try {
+            const candidates = scored.map(({ route, distanceDeltaKm }) => ({
+                id: route.id,
+                distanceKm: route.distanceKm,
+                absoluteDeviationKm: distanceDeltaKm,
+                isLoop: route.features.isLoop,
+                majorRoadRatio: route.features.majorRoadRatio,
+                sidewalkRatio: route.features.sidewalkRatio,
+                cyclingLaneRatio: route.features.cyclingLaneRatio,
+            }));
+            const evaluation = await aiRanker(activity, targetDistanceKm, preferences, candidates);
+            const validIds = new Set(candidates.map(({ id }) => id));
+            const returnedIds = new Set(evaluation.rankedRouteIds);
+            if (evaluation.rankedRouteIds.length !== validIds.size ||
+                returnedIds.size !== validIds.size ||
+                evaluation.rankedRouteIds.some((id) => !validIds.has(id)) ||
+                evaluation.candidateReasons.length !== validIds.size ||
+                new Set(evaluation.candidateReasons.map(({ routeId }) => routeId)).size !== validIds.size ||
+                evaluation.candidateReasons.some(({ routeId, reason }) => !validIds.has(routeId) || typeof reason !== 'string' || reason.length === 0) ||
+                typeof evaluation.distanceInsight !== 'string' ||
+                evaluation.distanceInsight.length === 0) {
+                throw new Error('AI returned missing, duplicate, or unknown route identifiers');
             }
-            else {
-                tiedGroups.push([item]);
-            }
+            aiOrder = new Map(evaluation.rankedRouteIds.map((id, index) => [id, index]));
+            aiReasons = new Map(evaluation.candidateReasons.map(({ routeId, reason }) => [routeId, reason]));
+            distanceInsight = evaluation.distanceInsight;
         }
-        aiOrder = new Map();
-        for (const group of tiedGroups) {
-            if (group.length < 2)
-                continue;
-            try {
-                const candidates = group.map(({ route, distanceDeltaKm }) => ({
-                    id: route.id,
-                    distanceKm: route.distanceKm,
-                    absoluteDeviationKm: distanceDeltaKm,
-                    isLoop: route.features.isLoop,
-                }));
-                const aiRankedIds = await aiRanker(activity, targetDistanceKm, preferences.preferLoop === true, candidates);
-                const validIds = new Set(candidates.map(({ id }) => id));
-                const returnedIds = new Set(aiRankedIds);
-                if (aiRankedIds.length !== validIds.size ||
-                    returnedIds.size !== validIds.size ||
-                    aiRankedIds.some((id) => !validIds.has(id))) {
-                    throw new Error('AI returned missing, duplicate, or unknown route identifiers');
-                }
-                aiResolvedTie = true;
-                aiRankedIds.forEach((id, index) => aiOrder.set(id, index));
-            }
-            catch (error) {
-                const errorCode = typeof error === 'object' && error !== null && 'code' in error
-                    ? String(error.code)
-                    : 'INVALID_RANKING';
-                console.warn(`AI route tie-break unavailable (${errorCode}); using deterministic fallback`);
-            }
+        catch (error) {
+            const errorCode = typeof error === 'object' && error !== null && 'code' in error
+                ? String(error.code)
+                : 'INVALID_RANKING';
+            console.warn(`AI route ranking unavailable (${errorCode}); using deterministic fallback`);
         }
-        if (!aiResolvedTie)
-            aiOrder = undefined;
     }
     scored.sort((a, b) => a.distanceDeltaKm - b.distanceDeltaKm ||
         b.preferenceScore - a.preferenceScore ||
-        (aiOrder?.get(a.route.id) ?? 0) - (aiOrder?.get(b.route.id) ?? 0) ||
         a.route.id.localeCompare(b.route.id));
-    return scored.map((item, index) => {
+    if (aiOrder && scored.length > 1) {
+        const nearestDeviation = scored[0].distanceDeltaKm;
+        const tieGroup = scored.filter((item) => item.distanceDeltaKm <= nearestDeviation + 0.05);
+        const tieIds = new Set(tieGroup.map((item) => item.route.id));
+        const aiRankedTieGroup = tieGroup.sort((a, b) => aiOrder.get(a.route.id) - aiOrder.get(b.route.id));
+        const remaining = scored.filter((item) => !tieIds.has(item.route.id));
+        scored.splice(0, scored.length, ...aiRankedTieGroup, ...remaining);
+    }
+    const topScored = scored.slice(0, 5);
+    return topScored.map((item, index) => {
         const reasons = [`${item.route.distanceKm.toFixed(2)} km; ${item.distanceDeltaKm.toFixed(2)} km from target`];
         if (preferences.preferLoop && item.route.features.isLoop)
             reasons.push('Preferred loop route');
@@ -118,6 +117,10 @@ export async function rankCandidateRoutes(activity, targetDistanceKm, preference
             item.route.features.cyclingLaneRatio >= 0.5) {
             reasons.push('Cycling infrastructure available');
         }
+        if (aiReasons?.has(item.route.id))
+            reasons.push(aiReasons.get(item.route.id));
+        if (index === 0 && distanceInsight)
+            reasons.push(distanceInsight);
         const suitability = item.score >= 85
             ? 'Excellent match'
             : item.score >= 70

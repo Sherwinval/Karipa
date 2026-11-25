@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
+import { decryptLocationData, encryptLocationData } from '../lib/locationEncryption.js';
 import { requireAuth } from '../middleware/auth.js';
 import { validateAndCalculateActivityCalories, CalorieEstimateValidationError, } from '../services/calorieEstimationService.js';
 import { getWeeklyLeaderboardPeriod } from '../lib/weeklyLeaderboardPeriod.js';
@@ -14,8 +15,6 @@ export const activitySchema = z.object({
     targetDistanceMeters: z.number().finite().positive().nullable().optional(),
     averagePaceSecondsPerKm: z.number().finite().nonnegative().nullable().optional(),
     averageSpeedKmh: z.number().finite().nonnegative().nullable().optional(),
-    averageHeartRate: z.number().int().positive().optional(),
-    maximumHeartRate: z.number().int().positive().optional(),
     calories: z.number().finite().nonnegative().nullable().optional(),
     calorieMetCode: z.string().min(1).nullable().optional(),
     calorieMetValue: z.number().finite().positive().nullable().optional(),
@@ -71,8 +70,6 @@ function serializeActivity(activity) {
         averagePaceMinPerKm: activity.pace === null ? null : Number((Number(activity.pace) / 60).toFixed(2)),
         averageSpeedKmh: activity.speed === null ? null : Number(Number(activity.speed).toFixed(2)),
         timePerKm: activity.splits.map((split) => ({ kilometer: split.kilometer, timeSeconds: split.timeSeconds })),
-        averageHeartRate: activity.averageHeartRate,
-        maximumHeartRate: activity.maximumHeartRate,
         calories: activity.calories === null ? null : Number(activity.calories),
         calorieMetCode: activity.calorieMetCode,
         calorieMetValue: activity.calorieMetValue === null ? null : Number(activity.calorieMetValue),
@@ -83,8 +80,8 @@ function serializeActivity(activity) {
         calorieMethodVersion: activity.calorieMethodVersion,
         startedAt: activity.startedAt.toISOString(),
         completedAt: activity.completedAt.toISOString(),
-        routeData: activity.routeData,
-        gpsData: activity.gpsData,
+        routeData: decryptLocationData(activity.routeData),
+        gpsData: decryptLocationData(activity.gpsData),
     };
 }
 export const activityRouter = Router();
@@ -197,8 +194,6 @@ activityRouter.post('/', async (req, res) => {
                 targetDistance: data.targetDistanceMeters ?? null,
                 pace: data.averagePaceSecondsPerKm,
                 speed: data.averageSpeedKmh,
-                averageHeartRate: data.averageHeartRate,
-                maximumHeartRate: data.maximumHeartRate,
                 calories: calorieCalculation.calories,
                 calorieMetCode: calorieCalculation.calorieMetCode,
                 calorieMetValue: calorieCalculation.calorieMetValue,
@@ -207,10 +202,12 @@ activityRouter.post('/', async (req, res) => {
                 calorieMethodVersion: calorieCalculation.calorieMethodVersion,
                 startedAt: data.startedAt,
                 completedAt: data.completedAt,
-                gpsData: data.gpsData,
+                gpsData: data.gpsData == null
+                    ? undefined
+                    : encryptLocationData(data.gpsData),
                 routeData: data.routeData == null
                     ? undefined
-                    : data.routeData,
+                    : encryptLocationData(data.routeData),
                 idempotencyKey: data.idempotencyKey,
                 splits: data.timePerKm ? { create: data.timePerKm } : undefined,
             },
@@ -239,8 +236,12 @@ activityRouter.post('/', async (req, res) => {
     }
 });
 activityRouter.get('/:id', async (req, res) => {
+    const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    if (!/^\d+$/.test(String(rawId))) {
+        res.status(400).json({ success: false, message: 'Invalid activity id' });
+        return;
+    }
     try {
-        const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
         const activityId = BigInt(String(rawId));
         const activity = await prisma.activity.findFirst({
             where: { id: activityId, userId: req.userId },
@@ -252,8 +253,9 @@ activityRouter.get('/:id', async (req, res) => {
         }
         res.json({ success: true, activity: serializeActivity(activity) });
     }
-    catch (err) {
-        res.status(400).json({ success: false, message: 'Invalid activity id' });
+    catch (error) {
+        console.error('Activity load error:', error);
+        res.status(500).json({ success: false, message: 'Failed to load activity' });
     }
 });
 activityRouter.delete('/:id', async (req, res) => {

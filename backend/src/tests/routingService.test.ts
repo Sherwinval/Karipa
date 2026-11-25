@@ -273,7 +273,7 @@ describe('Valhalla routing API generation', () => {
       { latitude: 14.5995, longitude: 120.9842 },
     );
 
-    expect(requests).toHaveLength(6);
+    expect(requests).toHaveLength(10);
     expect(requests[0].url).toBe('http://localhost:8002/route');
     expect(JSON.parse(String(requests[0].init.body)).costing).toBe('pedestrian');
     expect(JSON.parse(String(requests[0].init.body)).locations[0].radius).toBe(150);
@@ -299,7 +299,7 @@ describe('Valhalla routing API generation', () => {
       { avoidMajorRoads: true, preferCyclingInfrastructure: true, avoidHills: true },
       { latitude: 14.5995, longitude: 120.9842 },
     );
-    expect(requestCount).toBe(6);
+    expect(requestCount).toBe(10);
     const firstBody = JSON.parse(String((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body));
     expect(firstBody.costing_options.bicycle).toMatchObject({
       use_hills: 0.2,
@@ -509,5 +509,22 @@ describe('route ranking', () => {
 
     expect(ranked.map(({ id }) => id)).toEqual(['alpha', 'beta']);
     expect(ranked.every(({ rankingSource }) => rankingSource === 'deterministic_fallback')).toBe(true);
+  });
+
+  it('strictly caps the returned candidates to a maximum of 5', async () => {
+    process.env.AI_ROUTE_RANKING_ENABLED = 'false';
+    const routes = [
+      route('r1', 5.0),
+      route('r2', 5.01),
+      route('r3', 5.02),
+      route('r4', 5.03),
+      route('r5', 5.04),
+      route('r6', 5.05),
+      route('r7', 5.06),
+    ];
+    const ranked = await rankCandidateRoutes('running', 5, {}, routes);
+
+    expect(ranked.length).toBe(5);
+    expect(ranked.map((r) => r.id)).toEqual(['r1', 'r2', 'r3', 'r4', 'r5']);
   });
 });

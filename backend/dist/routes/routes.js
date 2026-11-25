@@ -1,20 +1,26 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
+import { decryptLocationData, encryptLocationData } from '../lib/locationEncryption.js';
 import { requireAuth } from '../middleware/auth.js';
-import { generateCandidateRoutes, GoogleRoutesError } from '../services/routingService.js';
+import { globalRouteQueue } from '../services/routeQueueService.js';
+import { generateCandidateRoutes, getMaximumDistanceDeviationKm, RoutingServiceError, } from '../services/routingService.js';
 import { rankCandidateRoutes } from '../services/routeRankingService.js';
+import { explainUnavailableDistance, interpretRoutePreferences, isGroqEnabled, } from '../services/groqService.js';
 export const routeRouter = Router();
 const generateSchema = z.object({
     activity: z.enum(['walking', 'jogging', 'running', 'cycling']).optional(),
     activityType: z.enum(['walking', 'jogging', 'running', 'cycling']).optional(),
     targetDistanceKm: z.number().finite().positive(),
+    targetDistanceToleranceKm: z.number().finite().positive().optional(),
     preferences: z.object({
         avoidMajorRoads: z.boolean().optional(),
         preferSidewalks: z.boolean().optional(),
         preferLoop: z.boolean().optional(),
         preferCyclingInfrastructure: z.boolean().optional(),
+        avoidHills: z.boolean().optional(),
     }).default({}),
+    additionalNotes: z.string().trim().max(500).optional(),
     startLocation: z.object({
         latitude: z.number().min(-90).max(90),
         longitude: z.number().min(-180).max(180),
@@ -31,40 +37,83 @@ routeRouter.post('/generate', async (req, res) => {
         });
         return;
     }
-    const { targetDistanceKm, preferences, startLocation } = parsed.data;
+    const { targetDistanceKm, preferences, startLocation, additionalNotes } = parsed.data;
     const activity = parsed.data.activity ?? parsed.data.activityType;
     if (!activity) {
         res.status(400).json({ success: false, message: 'Select an activity type' });
         return;
     }
+    const job = globalRouteQueue.createJob();
+    globalRouteQueue.bindResponseClose(res, job.id);
     try {
-        // 1. Generate candidates from Google Maps Routes API results
-        const candidates = await generateCandidateRoutes(activity, targetDistanceKm, preferences, startLocation);
-        if (candidates.length === 0) {
-            const configuredDeviation = process.env.ROUTE_MAX_DISTANCE_DEVIATION_KM;
-            res.status(404).json({
-                success: false,
-                message: configuredDeviation
-                    ? `No valid route was found within the configured ${configuredDeviation} km deviation of the requested ${targetDistanceKm} km. Try again or adjust the target distance.`
-                    : activity === 'cycling'
-                        ? 'Google Maps did not return a cycling route for this area. Cycling coverage is not verified here; no alternate routing provider is used.'
-                        : 'Google Maps did not return any valid routes. Check your connection and try again.',
-                provider: 'google_maps',
-            });
-            return;
+        const effectivePreferences = { ...preferences };
+        const unsupportedPreferences = [];
+        let notesInterpreted = false;
+        if (additionalNotes && isGroqEnabled()) {
+            try {
+                const interpretation = await interpretRoutePreferences(additionalNotes);
+                const interpretedPreferences = interpretation.constraints;
+                for (const key of [
+                    'avoidMajorRoads',
+                    'preferSidewalks',
+                    'preferLoop',
+                    'preferCyclingInfrastructure',
+                    'avoidHills',
+                ]) {
+                    if (effectivePreferences[key] === undefined && interpretedPreferences[key] !== null) {
+                        effectivePreferences[key] = interpretedPreferences[key];
+                    }
+                }
+                unsupportedPreferences.push(...interpretation.unsupportedPreferences);
+                notesInterpreted = true;
+            }
+            catch (error) {
+                const errorCode = typeof error === 'object' && error !== null && 'code' in error
+                    ? String(error.code)
+                    : 'PREFERENCE_INTERPRETATION_FAILED';
+                console.warn(`Groq route preference interpretation unavailable (${errorCode}); using structured preferences only`);
+            }
         }
-        // 2. Rank only distance-valid candidates deterministically
-        const rankedRoutes = await rankCandidateRoutes(activity, targetDistanceKm, preferences, candidates);
+        if (activity !== 'cycling' && effectivePreferences.avoidMajorRoads) {
+            unsupportedPreferences.push('Avoiding major roads cannot currently be verified for pedestrian routes.');
+        }
+        if (activity !== 'cycling' && effectivePreferences.preferCyclingInfrastructure) {
+            unsupportedPreferences.push('Cycling infrastructure preference applies only to cycling routes.');
+        }
+        const { targetDistanceToleranceKm } = parsed.data;
+        // Valhalla is the authority for route geometry, access, and distance.
+        const candidates = await generateCandidateRoutes(activity, targetDistanceKm, effectivePreferences, startLocation, { jobId: job.id, targetDistanceToleranceKm });
+        const maximumDistanceDeviationKm = getMaximumDistanceDeviationKm(targetDistanceToleranceKm);
+        const rankedRoutes = await rankCandidateRoutes(activity, targetDistanceKm, effectivePreferences, candidates, undefined, targetDistanceToleranceKm);
         if (rankedRoutes.length === 0) {
+            let explanation;
+            let suggestions = [];
+            if (candidates.length > 0 && isGroqEnabled()) {
+                try {
+                    const insight = await explainUnavailableDistance(activity, targetDistanceKm, maximumDistanceDeviationKm, candidates.map((candidate) => candidate.distanceKm));
+                    explanation = insight.explanation;
+                    suggestions = insight.suggestions;
+                }
+                catch (error) {
+                    const errorCode = typeof error === 'object' && error !== null && 'code' in error
+                        ? String(error.code)
+                        : 'DISTANCE_EXPLANATION_FAILED';
+                    console.warn(`Groq distance explanation unavailable (${errorCode}); using deterministic guidance`);
+                }
+            }
             res.status(404).json({
                 success: false,
-                message: 'The routing service did not return any valid routes. Check your connection and try again.',
+                message: explanation ??
+                    `No valid route was found within ${maximumDistanceDeviationKm} km of your ${targetDistanceKm} km target. Try a nearby distance or change the loop preference.`,
+                suggestions,
+                preferencesNotInterpreted: Boolean(additionalNotes) && !notesInterpreted,
+                unsupportedPreferences,
+                provider: 'valhalla',
             });
             return;
         }
-        const maximumDistanceDeviationKm = process.env.ROUTE_MAX_DISTANCE_DEVIATION_KM
-            ? Number(process.env.ROUTE_MAX_DISTANCE_DEVIATION_KM)
-            : null;
+        job.status = 'completed';
+        job.result = rankedRoutes;
         res.json({
             success: true,
             routes: rankedRoutes,
@@ -73,56 +122,198 @@ routeRouter.post('/generate', async (req, res) => {
                 activity,
                 targetDistanceKm,
                 maximumDistanceDeviationKm,
-                closeCandidateAvailable: maximumDistanceDeviationKm === null
-                    ? null
-                    : rankedRoutes.some((route) => route.absoluteDistanceDeviationKm <= maximumDistanceDeviationKm),
+                closeCandidateAvailable: true,
                 rankingSource: rankedRoutes[0].rankingSource,
+                notesInterpreted,
+                unsupportedPreferences,
                 startLocation,
+                jobId: job.id,
             },
         });
     }
     catch (error) {
-        if (error instanceof GoogleRoutesError) {
-            console.error(`Google Maps route generation failed (${error.providerStatus ?? error.statusCode})`);
+        if (error && typeof error === 'object' && error.statusCode === 503) {
+            if (error.retryAfterSeconds) {
+                res.setHeader('Retry-After', String(error.retryAfterSeconds));
+            }
+            res.status(503).json({
+                success: false,
+                message: error.message || 'Route generation queue is full. Please try again later.',
+                provider: 'valhalla',
+            });
+            return;
+        }
+        if (error instanceof RoutingServiceError) {
+            console.error(`Route generation failed (${error.providerStatus ?? error.statusCode})`);
             res.status(error.statusCode).json({
                 success: false,
                 message: error.message,
-                provider: 'google_maps',
+                provider: 'valhalla',
             });
             return;
         }
         console.error('Route generation failed:', error);
         res.status(500).json({
             success: false,
-            message: 'Google Maps route generation failed unexpectedly. Please retry.',
-            provider: 'google_maps',
+            message: 'Route generation failed unexpectedly. Please retry.',
+            provider: 'valhalla',
         });
     }
 });
-// Evaluate route features
-routeRouter.post('/evaluate', async (req, res) => {
-    const { routes, targetDistanceKm } = req.body;
-    if (!Array.isArray(routes)) {
-        res.status(400).json({ success: false, message: 'Routes array required' });
+// Asynchronous route generation endpoint (returns 202 Accepted with jobId)
+routeRouter.post('/generate-async', async (req, res) => {
+    const parsed = generateSchema.safeParse(req.body);
+    if (!parsed.success) {
+        res.status(400).json({
+            success: false,
+            message: 'Invalid route generation parameters',
+            errors: parsed.error.flatten(),
+        });
         return;
     }
-    res.json({ success: true, evaluated: routes });
+    const { targetDistanceKm, preferences, startLocation, additionalNotes } = parsed.data;
+    const activity = parsed.data.activity ?? parsed.data.activityType;
+    if (!activity) {
+        res.status(400).json({ success: false, message: 'Select an activity type' });
+        return;
+    }
+    const job = globalRouteQueue.createJob();
+    // Process job asynchronously in background
+    (async () => {
+        try {
+            const effectivePreferences = { ...preferences };
+            const unsupportedPreferences = [];
+            let notesInterpreted = false;
+            if (additionalNotes && isGroqEnabled()) {
+                try {
+                    const interpretation = await interpretRoutePreferences(additionalNotes);
+                    for (const key of [
+                        'avoidMajorRoads',
+                        'preferSidewalks',
+                        'preferLoop',
+                        'preferCyclingInfrastructure',
+                        'avoidHills',
+                    ]) {
+                        if (effectivePreferences[key] === undefined && interpretation.constraints[key] !== null) {
+                            effectivePreferences[key] = interpretation.constraints[key];
+                        }
+                    }
+                    unsupportedPreferences.push(...interpretation.unsupportedPreferences);
+                    notesInterpreted = true;
+                }
+                catch (error) {
+                    console.warn('Groq route preference interpretation unavailable; using structured preferences only');
+                }
+            }
+            if (activity !== 'cycling' && effectivePreferences.avoidMajorRoads) {
+                unsupportedPreferences.push('Avoiding major roads cannot currently be verified for pedestrian routes.');
+            }
+            if (activity !== 'cycling' && effectivePreferences.preferCyclingInfrastructure) {
+                unsupportedPreferences.push('Cycling infrastructure preference applies only to cycling routes.');
+            }
+            const candidates = await generateCandidateRoutes(activity, targetDistanceKm, effectivePreferences, startLocation, { jobId: job.id, targetDistanceToleranceKm: parsed.data.targetDistanceToleranceKm });
+            if (job.status === 'cancelled')
+                return;
+            const rankedRoutes = await rankCandidateRoutes(activity, targetDistanceKm, effectivePreferences, candidates, undefined, parsed.data.targetDistanceToleranceKm);
+            if (job.status === 'cancelled')
+                return;
+            const maximumDistanceDeviationKm = getMaximumDistanceDeviationKm(parsed.data.targetDistanceToleranceKm);
+            job.status = 'completed';
+            job.result = {
+                success: true,
+                routes: rankedRoutes,
+                meta: {
+                    totalGenerated: candidates.length,
+                    activity,
+                    targetDistanceKm,
+                    maximumDistanceDeviationKm,
+                    closeCandidateAvailable: rankedRoutes.length > 0,
+                    rankingSource: rankedRoutes[0]?.rankingSource,
+                    notesInterpreted,
+                    unsupportedPreferences,
+                    startLocation,
+                    jobId: job.id,
+                },
+            };
+            job.completedAt = Date.now();
+        }
+        catch (err) {
+            if (job.status === 'cancelled')
+                return;
+            job.status = 'failed';
+            job.error = err?.message || 'Asynchronous route generation failed';
+            job.completedAt = Date.now();
+        }
+    })();
+    res.status(202).json({
+        success: true,
+        jobId: job.id,
+        status: job.status,
+        message: 'Route generation job queued successfully',
+    });
 });
-// Recommend routes
-routeRouter.post('/recommend', async (req, res) => {
-    const { activity, targetDistanceKm, preferences, routes } = req.body;
-    if (!Array.isArray(routes)) {
-        res.status(400).json({ success: false, message: 'Routes array required' });
+// Check status of asynchronous route generation job
+routeRouter.get('/jobs/:jobId', (req, res) => {
+    const jobId = Array.isArray(req.params.jobId) ? req.params.jobId[0] : req.params.jobId;
+    const job = globalRouteQueue.getJob(jobId);
+    if (!job) {
+        res.status(404).json({
+            success: false,
+            message: 'Job not found or expired',
+        });
         return;
     }
-    const target = Number(targetDistanceKm ?? 5);
-    if (!Number.isFinite(target) || target <= 0) {
-        res.status(400).json({ success: false, message: 'Target distance must be greater than zero km' });
-        return;
-    }
-    const ranked = await rankCandidateRoutes(activity || 'running', target, preferences || {}, routes);
-    res.json({ success: true, rankedRoutes: ranked });
+    res.json({
+        success: true,
+        job: {
+            id: job.id,
+            status: job.status,
+            result: job.result,
+            error: job.error,
+            createdAt: job.createdAt,
+            completedAt: job.completedAt,
+        },
+    });
 });
+// Cancel an active or queued route generation job
+const handleCancelJob = (req, res) => {
+    const jobId = Array.isArray(req.params.jobId) ? req.params.jobId[0] : req.params.jobId;
+    const job = globalRouteQueue.getJob(jobId);
+    if (!job) {
+        res.status(404).json({
+            success: false,
+            message: 'Job not found or already completed/expired',
+        });
+        return;
+    }
+    const cancelled = globalRouteQueue.cancelJob(jobId, 'Cancelled by user request');
+    if (!cancelled) {
+        res.status(409).json({
+            success: false,
+            message: `Job ${jobId} is already ${job.status} and cannot be cancelled`,
+            jobId,
+            status: job.status,
+        });
+        return;
+    }
+    res.json({
+        success: true,
+        message: `Job ${jobId} cancelled successfully`,
+        jobId,
+        status: 'cancelled',
+    });
+};
+routeRouter.delete('/jobs/:jobId', handleCancelJob);
+routeRouter.post('/jobs/:jobId/cancel', handleCancelJob);
+for (const endpoint of ['/evaluate', '/recommend']) {
+    routeRouter.post(endpoint, (_req, res) => {
+        res.status(410).json({
+            success: false,
+            message: 'Client-supplied route geometry is no longer accepted. Use POST /api/routes/generate to route and rank candidates through Valhalla.',
+            code: 'VALHALLA_GENERATION_REQUIRED',
+        });
+    });
+}
 // Save a selected route to user's saved routes
 routeRouter.post('/', requireAuth, async (req, res) => {
     try {
@@ -134,7 +325,7 @@ routeRouter.post('/', requireAuth, async (req, res) => {
                 distance: Number(distanceKm || 0),
                 duration: durationSeconds ? Math.round(Number(durationSeconds)) : null,
                 score: score ? Number(score) : null,
-                routeData: {},
+                routeData: encryptLocationData({}),
             },
         });
         res.status(201).json({
@@ -146,12 +337,13 @@ routeRouter.post('/', requireAuth, async (req, res) => {
                 distanceKm: Number(route.distance),
                 durationSeconds: route.duration,
                 score: route.score ? Number(route.score) : null,
-                routeData: route.routeData,
+                routeData: decryptLocationData(route.routeData),
                 createdAt: route.createdAt.toISOString(),
             },
         });
     }
-    catch (err) {
+    catch (error) {
+        console.error('Route save error:', error);
         res.status(500).json({ success: false, message: 'Failed to save route' });
     }
 });
@@ -171,23 +363,24 @@ routeRouter.get('/', requireAuth, async (req, res) => {
                 distanceKm: Number(r.distance),
                 durationSeconds: r.duration,
                 score: r.score ? Number(r.score) : null,
-                routeData: r.routeData,
+                routeData: decryptLocationData(r.routeData),
                 createdAt: r.createdAt.toISOString(),
             })),
         });
     }
-    catch (err) {
+    catch (error) {
+        console.error('Saved routes load error:', error);
         res.status(500).json({ success: false, message: 'Failed to load routes' });
     }
 });
 // Get specific route by id
 routeRouter.get('/:id', requireAuth, async (req, res) => {
+    const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    if (!/^\d+$/.test(String(rawId))) {
+        res.status(400).json({ success: false, message: 'Invalid route id' });
+        return;
+    }
     try {
-        const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-        if (!/^\d+$/.test(String(rawId))) {
-            res.status(400).json({ success: false, message: 'Invalid route id' });
-            return;
-        }
         const routeId = BigInt(String(rawId));
         const route = await prisma.route.findFirst({
             where: { id: routeId, userId: req.userId },
@@ -205,12 +398,13 @@ routeRouter.get('/:id', requireAuth, async (req, res) => {
                 distanceKm: Number(route.distance),
                 durationSeconds: route.duration,
                 score: route.score ? Number(route.score) : null,
-                routeData: route.routeData,
+                routeData: decryptLocationData(route.routeData),
                 createdAt: route.createdAt.toISOString(),
             },
         });
     }
-    catch (err) {
-        res.status(400).json({ success: false, message: 'Invalid route id' });
+    catch (error) {
+        console.error('Saved route load error:', error);
+        res.status(500).json({ success: false, message: 'Failed to load route' });
     }
 });

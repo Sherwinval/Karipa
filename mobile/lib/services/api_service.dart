@@ -162,6 +162,122 @@ class ApiService {
     throw Exception(_responseMessage(response, 'Failed to generate routes'));
   }
 
+  /// Submit an asynchronous route generation job
+  static Future<String> submitAsyncRouteJob({
+    required String activity,
+    required double targetDistanceKm,
+    required Map<String, dynamic> preferences,
+    required double latitude,
+    required double longitude,
+    String? additionalNotes,
+    double? targetDistanceToleranceKm,
+  }) async {
+    final headers = await _headers();
+    final response = await ApiConfig.send(
+      '/routes/generate-async',
+      (uri) => http.post(
+        uri,
+        headers: headers,
+        body: jsonEncode({
+          'activity': activity.toLowerCase(),
+          'targetDistanceKm': targetDistanceKm,
+          'preferences': preferences,
+          if (additionalNotes != null && additionalNotes.trim().isNotEmpty)
+            'additionalNotes': additionalNotes.trim(),
+          if (targetDistanceToleranceKm != null)
+            'targetDistanceToleranceKm': targetDistanceToleranceKm,
+          'startLocation': {
+            'latitude': latitude,
+            'longitude': longitude,
+          },
+        }),
+      ),
+      timeout: const Duration(seconds: 15),
+    );
+
+    if (response.statusCode == 202) {
+      final data = jsonDecode(response.body);
+      if (data is Map && data['success'] == true && data['jobId'] is String) {
+        return data['jobId'] as String;
+      }
+    }
+    throw Exception(_responseMessage(response, 'Failed to queue route generation job'));
+  }
+
+  /// Poll an asynchronous route generation job status
+  static Future<Map<String, dynamic>> pollRouteJob(String jobId) async {
+    final headers = await _headers();
+    final response = await ApiConfig.send(
+      '/routes/jobs/$jobId',
+      (uri) => http.get(uri, headers: headers),
+      timeout: const Duration(seconds: 10),
+    );
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      if (data is Map && data['success'] == true && data['job'] is Map) {
+        return Map<String, dynamic>.from(data['job'] as Map);
+      }
+    }
+    throw Exception(_responseMessage(response, 'Failed to check job status'));
+  }
+
+  static List<PathRoute> parseCompletedJobRoutes(
+    Map<String, dynamic> job,
+    String? additionalNotes,
+  ) {
+    final result = job['result'];
+    if (result is! Map) return <PathRoute>[];
+    final data = Map<String, dynamic>.from(result);
+    if (data['success'] != true || data['routes'] is! List) {
+      return <PathRoute>[];
+    }
+
+    final meta = data['meta'] is Map
+        ? Map<String, dynamic>.from(data['meta'] as Map)
+        : <String, dynamic>{};
+    final unsupportedPreferences = meta['unsupportedPreferences'] is List
+        ? (meta['unsupportedPreferences'] as List).whereType<String>().toList()
+        : <String>[];
+    final preferenceNotices = <String>[];
+    if (additionalNotes != null &&
+        additionalNotes.trim().isNotEmpty &&
+        meta['notesInterpreted'] != true) {
+      preferenceNotices.add(
+          'Additional notes could not be interpreted; selected route switches were used.');
+    }
+    if (unsupportedPreferences.isNotEmpty) {
+      preferenceNotices.add(
+          'These requests could not be verified from available routing data: ${unsupportedPreferences.join(', ')}.');
+    }
+    final preferenceNotice =
+        preferenceNotices.isEmpty ? null : preferenceNotices.join(' ');
+
+    return (data['routes'] as List)
+        .map((route) => PathRoute.fromJson({
+              ...Map<String, dynamic>.from(route as Map),
+              'maximumDistanceDeviationKm':
+                  meta['maximumDistanceDeviationKm'],
+              'closeCandidateAvailable': meta['closeCandidateAvailable'],
+              'preferenceNotice': preferenceNotice,
+            }))
+        .toList();
+  }
+
+  /// Cancel an active asynchronous route generation job
+  static Future<void> cancelRouteJob(String jobId) async {
+    final headers = await _headers();
+    try {
+      await ApiConfig.send(
+        '/routes/jobs/$jobId/cancel',
+        (uri) => http.post(uri, headers: headers),
+        timeout: const Duration(seconds: 5),
+      );
+    } catch (_) {
+      // Ignore cancellation network errors
+    }
+  }
+
   static Future<Map<String, dynamic>> getProfile() async {
     final token = await _getToken();
     if (token == null || token.isEmpty) {

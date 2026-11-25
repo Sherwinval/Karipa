@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node scripts/dev-with-tunnel.mjs",
     "dev:server": "tsx watch src/server.ts",
-    "build": "tsc",
+    "build": "prisma generate && tsc",
     "start": "node dist/server.js",
     "migrate": "prisma migrate dev",
     "prisma:generate": "prisma generate",

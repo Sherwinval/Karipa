@@ -77,9 +77,12 @@ export async function rankCandidateRoutes(
   preferences: RoutePreferences,
   routes: CandidateRoute[],
   aiRanker: RouteCandidateRanker = evaluateRouteCandidates,
+  targetDistanceToleranceKm?: number,
 ): Promise<RankedRoute[]> {
   if (!Number.isFinite(targetDistanceKm) || targetDistanceKm <= 0) return [];
-  const validatedRoutes = validateAndDeduplicateCandidateRoutes(routes, targetDistanceKm);
+  const validatedRoutes = validateAndDeduplicateCandidateRoutes(routes, targetDistanceKm, {
+    targetDistanceToleranceKm,
+  });
   if (validatedRoutes.length === 0) return [];
 
   const scored: ScoredRoute[] = validatedRoutes.map((route) => {
@@ -161,7 +164,9 @@ export async function rankCandidateRoutes(
     scored.splice(0, scored.length, ...aiRankedTieGroup, ...remaining);
   }
 
-  return scored.map((item, index) => {
+  const topScored = scored.slice(0, 5);
+
+  return topScored.map((item, index) => {
     const reasons: string[] = [`${item.route.distanceKm.toFixed(2)} km; ${item.distanceDeltaKm.toFixed(2)} km from target`];
     if (preferences.preferLoop && item.route.features.isLoop) reasons.push('Preferred loop route');
     if (preferences.avoidMajorRoads && item.route.features.majorRoadRatio !== undefined) {

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
-import { getRouteRecommendation, getFitnessInsights, checkHealth, GeminiServiceError, } from '../services/geminiService.js';
+import { getRouteRecommendation, getFitnessInsights, checkHealth, GroqServiceError, } from '../services/groqService.js';
 // ---------------------------------------------------------------------------
 // Request validation schemas
 // ---------------------------------------------------------------------------
@@ -30,7 +30,7 @@ const routeRecommendationSchema = z.object({
 const MAX_HISTORY_ACTIVITIES = 10;
 /**
  * Fetch the user's most recent activities and convert them to the summary
- * format the Gemini service expects.
+ * format the Groq service expects.
  */
 async function fetchActivityHistory(userId) {
     const activities = await prisma.activity.findMany({
@@ -44,7 +44,6 @@ async function fetchActivityHistory(userId) {
         durationSeconds: a.duration,
         averagePaceMinPerKm: a.pace !== null ? Number((Number(a.pace) / 60).toFixed(2)) : null,
         averageSpeedKmh: a.speed !== null ? Number(Number(a.speed).toFixed(2)) : null,
-        averageHeartRate: a.averageHeartRate,
         calories: a.calories !== null ? Number(a.calories) : null,
         date: a.completedAt.toISOString().slice(0, 10),
     }));
@@ -53,7 +52,7 @@ async function fetchActivityHistory(userId) {
  * Standard error response helper.
  */
 function sendError(res, error) {
-    if (error instanceof GeminiServiceError) {
+    if (error instanceof GroqServiceError) {
         res.status(error.statusCode).json({
             success: false,
             message: error.message,
@@ -85,7 +84,7 @@ export async function handleRouteRecommendation(req, res) {
     try {
         // Fetch user activity history from the database
         const activities = await fetchActivityHistory(req.userId);
-        // Call the Gemini service
+        // Call the AI service
         const recommendation = await getRouteRecommendation(parsed.data, activities);
         res.json({
             success: true,
@@ -128,7 +127,7 @@ export async function handleAiHealth(_req, res) {
     const statusCode = result.ok ? 200 : 503;
     res.status(statusCode).json({
         success: result.ok,
-        message: result.ok ? 'Gemini AI service is operational' : 'Gemini AI service is unavailable',
+        message: result.ok ? 'Groq AI service is operational' : 'Groq AI service is unavailable',
         model: result.model,
         ...(result.error && { error: result.error }),
     });
