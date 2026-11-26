@@ -8,6 +8,7 @@ import '../models/route_model.dart';
 import '../services/location_service.dart';
 import '../services/api_service.dart';
 import '../services/calorie_estimation_service.dart';
+import '../widgets/activity_confirmation_dialog.dart';
 import '../widgets/route_map_widget.dart';
 import '../services/unit_preferences.dart';
 
@@ -34,6 +35,7 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen>
   // Activity state
   bool _isPaused = false;
   bool _isFinished = false;
+  bool _hasStarted = true;
 
   // Real GPS & movement data
   StreamSubscription<RecordedPoint>? _locationSubscription;
@@ -122,10 +124,7 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _startedAt = DateTime.now();
-    _activeStopwatch.start();
-    _elapsedStopwatch.start();
-    _idempotencyKey = 'tracking-${_startedAt.toUtc().microsecondsSinceEpoch}';
+    _hasStarted = !_isFreeRecording;
 
     if (widget.initialPosition != null) {
       _currentPosition = LatLng(
@@ -134,9 +133,23 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen>
       );
     }
 
+    if (_hasStarted) _beginRecordingSession();
+    _loadProfileWeight();
+  }
+
+  void _startRecording() {
+    if (_hasStarted || _isFinished) return;
+    setState(() => _hasStarted = true);
+    _beginRecordingSession();
+  }
+
+  void _beginRecordingSession() {
+    _startedAt = DateTime.now();
+    _idempotencyKey = 'tracking-${_startedAt.toUtc().microsecondsSinceEpoch}';
+    _activeStopwatch.start();
+    _elapsedStopwatch.start();
     _startActiveTimer();
     unawaited(_startGpsStream());
-    _loadProfileWeight();
     _gpsFreshnessTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       final lastUpdate = _lastAcceptedGpsAt;
       if (_isPaused || lastUpdate == null || !mounted) return;
@@ -250,7 +263,7 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen>
   }
 
   void _togglePause() {
-    if (_isFinished) return;
+    if (!_hasStarted || _isFinished) return;
     final wasPaused = _isPaused;
     if (_isPaused) {
       _activeStopwatch.start();
@@ -268,6 +281,7 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed ||
         state == AppLifecycleState.inactive ||
+        !_hasStarted ||
         _isPaused ||
         _isFinished) {
       return;
@@ -282,28 +296,19 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen>
 
   Future<void> _confirmFinishActivity() async {
     if (_isFinished) return;
+    if (!_hasStarted) {
+      Navigator.maybePop(context);
+      return;
+    }
     final shouldFinish = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Finish Activity?'),
-        content: const Text(
-          'Finish recording and review your actual GPS metrics? The activity will not be saved until you choose Save.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Continue Activity'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: KaripaPalette.coral,
-              foregroundColor: KaripaPalette.midnight,
-            ),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Finish Activity'),
-          ),
-        ],
+      builder: (_) => const ActivityConfirmationDialog(
+        title: 'Finish recording?',
+        message:
+            'Your recording will stop. You can review the activity before saving it.',
+        cancelLabel: 'Back to activity',
+        confirmLabel: 'Finish & review',
       ),
     );
 
@@ -390,7 +395,7 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen>
         : activity[0].toUpperCase() + activity.substring(1).toLowerCase();
 
     return PopScope(
-      canPop: false,
+      canPop: !_hasStarted,
       onPopInvokedWithResult: (didPop, result) async {
         if (!didPop) await _confirmFinishActivity();
       },
@@ -429,7 +434,12 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen>
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Icon(_isPaused ? Icons.pause : Icons.circle,
+                                    Icon(
+                                        !_hasStarted
+                                            ? Icons.play_arrow
+                                            : _isPaused
+                                                ? Icons.pause
+                                                : Icons.circle,
                                         size: _isPaused ? 14 : 8,
                                         color: _isPaused
                                             ? scheme.onSurfaceVariant
@@ -437,7 +447,11 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen>
                                     const SizedBox(width: AppSpacing.xs),
                                     Flexible(
                                       child: Text(
-                                        _isPaused ? 'Paused' : 'Tracking live',
+                                        !_hasStarted
+                                            ? 'Ready'
+                                            : _isPaused
+                                                ? 'Paused'
+                                                : 'Tracking live',
                                         style: theme.textTheme.labelMedium,
                                       ),
                                     ),
@@ -514,21 +528,26 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen>
                       Padding(
                         padding:
                             const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-                        child: _RecordingPair(
-                          minColumnWidth: 128,
+                        child: _RecordingControls(
                           first: _recordingButton(
                             context,
-                            label: _isPaused ? 'Resume' : 'Pause',
-                            icon: _isPaused
+                            label: !_hasStarted
+                                ? 'Start'
+                                : _isPaused
+                                    ? 'Resume'
+                                    : 'Pause',
+                            icon: !_hasStarted || _isPaused
                                 ? Icons.play_arrow_rounded
                                 : Icons.pause_circle_outline,
-                            onPressed: _togglePause,
+                            onPressed:
+                                _hasStarted ? _togglePause : _startRecording,
                           ),
                           second: _recordingButton(
                             context,
                             label: 'Finish & Review',
                             icon: Icons.stop_outlined,
-                            onPressed: _confirmFinishActivity,
+                            onPressed:
+                                _hasStarted ? _confirmFinishActivity : null,
                             primary: true,
                           ),
                         ),
@@ -542,6 +561,13 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen>
   }
 
   Widget _buildGpsStatus(BuildContext context) {
+    if (!_hasStarted) {
+      return Padding(
+        padding: const EdgeInsets.only(top: AppSpacing.md),
+        child: Text('Press Start when you’re ready to record.',
+            style: Theme.of(context).textTheme.bodyMedium),
+      );
+    }
     final message = _locationMessage == _backgroundPauseMessage && !_isPaused
         ? null
         : _locationMessage;
@@ -669,7 +695,7 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen>
           ),
         ],
         const SizedBox(height: AppSpacing.md),
-        if (!_isPaused)
+        if (_hasStarted && !_isPaused)
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -699,13 +725,17 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen>
     BuildContext context, {
     required String label,
     required IconData icon,
-    required VoidCallback onPressed,
+    required VoidCallback? onPressed,
     bool primary = false,
   }) {
     final scheme = Theme.of(context).colorScheme;
     return FilledButton(
       onPressed: onPressed,
       style: FilledButton.styleFrom(
+        textStyle: Theme.of(context)
+            .textTheme
+            .labelLarge
+            ?.copyWith(fontSize: 14, fontWeight: FontWeight.w600),
         minimumSize: const Size(0, AppSizes.buttonHeight),
         padding: const EdgeInsets.symmetric(
             horizontal: AppSpacing.sm, vertical: AppSpacing.md),
@@ -715,14 +745,12 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen>
         backgroundColor: primary ? scheme.primary : scheme.surfaceContainer,
         foregroundColor: primary ? scheme.onPrimary : scheme.onSurface,
       ),
-      child: Wrap(
-        alignment: WrapAlignment.center,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        spacing: AppSpacing.sm,
-        runSpacing: AppSpacing.xs,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, size: AppSizes.compactIcon),
-          Text(label, textAlign: TextAlign.center),
+          Icon(icon, size: 18),
+          const SizedBox(width: AppSpacing.xs),
+          Flexible(child: Text(label, textAlign: TextAlign.center)),
         ],
       ),
     );
@@ -785,6 +813,57 @@ class _RecordingPair extends StatelessWidget {
       );
     });
   }
+}
+
+class _RecordingControls extends StatelessWidget {
+  const _RecordingControls({required this.first, required this.second});
+
+  final Widget first;
+  final Widget second;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+        builder: (context, constraints) {
+          final textScale = MediaQuery.textScalerOf(context).scale(16) / 16;
+          final stacked = constraints.maxWidth < 280 * textScale;
+          final buttonWidth = stacked
+              ? constraints.maxWidth
+              : (constraints.maxWidth - AppSpacing.md) / 2;
+          final label = TextPainter(
+            text: TextSpan(
+              text: 'Finish & Review',
+              style: Theme.of(context)
+                  .textTheme
+                  .labelLarge
+                  ?.copyWith(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+            textScaler: MediaQuery.textScalerOf(context),
+            textDirection: Directionality.of(context),
+          )..layout(maxWidth: buttonWidth - 38);
+          final height = (label.height + AppSpacing.md * 2)
+              .clamp(AppSizes.buttonHeight, double.infinity);
+          label.dispose();
+          final firstButton = SizedBox(height: height, child: first);
+          final secondButton = SizedBox(height: height, child: second);
+          if (stacked) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                firstButton,
+                const SizedBox(height: AppSpacing.md),
+                secondButton
+              ],
+            );
+          }
+          return Row(
+            children: [
+              Expanded(child: firstButton),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(child: secondButton),
+            ],
+          );
+        },
+      );
 }
 
 class _PrimaryRecordingMetric extends StatelessWidget {

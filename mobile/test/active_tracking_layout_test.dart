@@ -24,6 +24,49 @@ final _testTile = base64Decode(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aEOQAAAAASUVORK5CYII=');
 
 void main() {
+  testWidgets(
+      'free recording waits for Start before timers, permissions or GPS begin',
+      (tester) async {
+    await _withRecording(tester, autoStart: false, run: (context) async {
+      expect(find.text('Ready'), findsOneWidget);
+      expect(find.text('Start'), findsOneWidget);
+      expect(context.permissionChecks, 0);
+      expect(context.streamStarts, 0);
+      expect(
+          tester
+              .widget<FilledButton>(
+                  find.widgetWithText(FilledButton, 'Finish & Review'))
+              .onPressed,
+          isNull);
+      final state = tester.state(find.byType(ActiveTrackingScreen))
+          as WidgetsBindingObserver;
+      state.didChangeAppLifecycleState(AppLifecycleState.paused);
+      await tester.pump(const Duration(seconds: 3));
+      expect(find.text('Ready'), findsOneWidget);
+      expect(find.text('00:00', findRichText: true), findsOneWidget);
+      expect(context.permissionChecks, 0);
+
+      await _tapVisible(tester, find.text('Start'));
+      expect(find.text('Pause'), findsOneWidget);
+      expect(context.streamStarts, 1);
+      expect(context.permissionChecks, greaterThan(0));
+      await _tapVisible(tester, find.text('Pause'));
+      expect(find.text('Resume'), findsOneWidget);
+      await _tapVisible(tester, find.text('Resume'));
+      expect(find.text('Pause'), findsOneWidget);
+      expect(context.streamStarts, 2);
+    });
+  });
+
+  testWidgets('planned route recording still starts on entry', (tester) async {
+    await _withRecording(tester, recordingMode: 'plan_route',
+        run: (context) async {
+      expect(find.text('Start'), findsNothing);
+      expect(find.text('Pause'), findsOneWidget);
+      expect(context.streamStarts, 1);
+    });
+  });
+
   late BuiltInMapCachingProvider tileCache;
   setUpAll(() {
     tileCache = BuiltInMapCachingProvider.getOrCreateInstance(
@@ -74,6 +117,10 @@ void main() {
           }
           final finish = find.widgetWithText(FilledButton, 'Finish & Review');
           final initialFinishRect = tester.getRect(finish);
+          final pauseRect =
+              tester.getRect(find.widgetWithText(FilledButton, 'Pause'));
+          expect(initialFinishRect.height, pauseRect.height);
+          expect(initialFinishRect.width, pauseRect.width);
           expect(initialFinishRect.bottom, lessThan(height - 24));
           expect(initialFinishRect.height, greaterThanOrEqualTo(48));
           expect(
@@ -117,15 +164,24 @@ void main() {
 
       await _tapVisible(tester, find.text('Pause'));
       expect(find.text('Paused', findRichText: true), findsOneWidget);
+      await _tapVisible(tester, find.text('Finish & Review'));
+      expect(find.text('Finish recording?'), findsOneWidget);
+      await _tapVisible(tester, find.text('Back to activity'));
+      expect(find.text('Resume').hitTestable(), findsOneWidget);
+      expect(context.review, isNull);
       await _tapVisible(tester, find.text('Resume'));
       expect(find.text('Tracking live', findRichText: true), findsOneWidget);
       await _tapVisible(tester, find.byTooltip('Close recording'));
       expect(find.byType(AlertDialog), findsOneWidget);
-      await _tapVisible(tester, find.text('Continue Activity'));
+      await tester.tapAt(const Offset(2, 2));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
+      await _tapVisible(tester, find.text('Back to activity'));
       expect(find.byType(AlertDialog), findsNothing);
+      expect(find.text('Pause').hitTestable(), findsOneWidget);
       await _tapVisible(tester, find.text('Finish & Review'));
       await _tapVisible(
-          tester, find.widgetWithText(ElevatedButton, 'Finish Activity'));
+          tester, find.widgetWithText(FilledButton, 'Finish & review'));
       expect(find.text('Recording review fixture'), findsOneWidget);
       expect(context.review?.name, '/activity_complete');
       final result = context.review?.arguments as Map;
@@ -239,6 +295,8 @@ Future<void> _loadPreviewFonts() async {
 }
 
 class _RecordingFixture {
+  int permissionChecks = 0;
+  int streamStarts = 0;
   final boundary = GlobalKey();
   late MockStreamHandlerEventSink _positions;
   RouteSettings? review;
@@ -266,20 +324,24 @@ Future<void> _withRecording(
   String activity = 'jogging',
   Brightness brightness = Brightness.light,
   bool hasProfileWeight = false,
+  bool autoStart = true,
+  String recordingMode = 'free_recording',
   required Future<void> Function(_RecordingFixture) run,
 }) async {
   final fixture = _RecordingFixture();
   final messenger = tester.binding.defaultBinaryMessenger;
-  messenger.setMockMethodCallHandler(
-      _location,
-      (call) async => switch (call.method) {
-            'isLocationServiceEnabled' => true,
-            'checkPermission' => 2,
-            _ => null,
-          });
+  messenger.setMockMethodCallHandler(_location, (call) async {
+    fixture.permissionChecks++;
+    return switch (call.method) {
+      'isLocationServiceEnabled' => true,
+      'checkPermission' => 2,
+      _ => null,
+    };
+  });
   messenger.setMockStreamHandler(
     _locationUpdates,
     MockStreamHandler.inline(onListen: (_, events) {
+      fixture.streamStarts++;
       fixture._positions = events;
     }),
   );
@@ -309,7 +371,7 @@ Future<void> _withRecording(
             child: child!,
           ),
           home: ActiveTrackingScreen(
-              activity: activity, recordingMode: 'free_recording'),
+              activity: activity, recordingMode: recordingMode),
           onGenerateRoute: (settings) {
             fixture.review = settings;
             return MaterialPageRoute<void>(
@@ -322,6 +384,9 @@ Future<void> _withRecording(
     ));
     try {
       await tester.pumpAndSettle();
+      if (autoStart && recordingMode == 'free_recording') {
+        await _tapVisible(tester, find.text('Start'));
+      }
       await run(fixture);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());

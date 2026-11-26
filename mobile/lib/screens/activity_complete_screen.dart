@@ -5,7 +5,7 @@ import '../models/route_model.dart';
 import '../services/api_service.dart';
 import '../services/unit_preferences.dart';
 import '../theme/design_tokens.dart';
-import '../widgets/metric_tile.dart';
+import '../widgets/activity_confirmation_dialog.dart';
 import '../widgets/route_map_widget.dart';
 
 class ActivityCompleteScreen extends StatefulWidget {
@@ -63,6 +63,7 @@ class ActivityCompleteScreen extends StatefulWidget {
 }
 
 class _ActivityCompleteScreenState extends State<ActivityCompleteScreen> {
+  final _actionsKey = GlobalKey();
   bool _isSaving = false;
   bool _isSaved = false;
   bool _savedLocally = false;
@@ -135,33 +136,36 @@ class _ActivityCompleteScreenState extends State<ActivityCompleteScreen> {
         _isSaved = true;
         _savedLocally = result['localOnly'] == true;
       });
+      _revealActionFeedback();
     } catch (error) {
       if (!mounted) return;
       setState(() {
         _isSaving = false;
         _saveError = error.toString().replaceFirst('Exception: ', '');
       });
+      _revealActionFeedback();
     }
+  }
+
+  void _revealActionFeedback() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final actions = _actionsKey.currentContext;
+      if (actions != null && Scrollable.maybeOf(actions) != null) {
+        Scrollable.ensureVisible(actions, alignment: 1);
+      }
+    });
   }
 
   Future<void> _discardActivity() async {
     if (_isSaved || _isSaving) return;
     final discard = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Discard activity?'),
-        content: const Text(
-            'This unsaved recording will be discarded and will not appear in history or leaderboard totals.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Keep reviewing'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Discard'),
-          ),
-        ],
+      builder: (_) => const ActivityConfirmationDialog(
+        title: 'Discard activity?',
+        message: 'You’ll lose this recording and its metrics.',
+        cancelLabel: 'Keep reviewing',
+        confirmLabel: 'Discard activity',
+        destructive: true,
       ),
     );
     if (discard == true && mounted) {
@@ -170,6 +174,9 @@ class _ActivityCompleteScreenState extends State<ActivityCompleteScreen> {
   }
 
   bool get _isCycling => widget.activityType.toLowerCase() == 'cycling';
+
+  static final _paceOrSpeedWithUnit =
+      RegExp(r'^(\S+) (min/km|min/mi|/km|/mi|km/h|mph)$');
 
   @override
   Widget build(BuildContext context) {
@@ -182,182 +189,395 @@ class _ActivityCompleteScreenState extends State<ActivityCompleteScreen> {
       },
       child: Scaffold(
         backgroundColor: theme.colorScheme.surface,
-        appBar: AppBar(
-          title: Text(_isSaved ? 'Activity Saved' : 'Review Activity'),
-          automaticallyImplyLeading: false,
-        ),
         body: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Icon(
-                  _isSaved ? Icons.check_circle_outline : Icons.flag_outlined,
-                  size: 56,
-                  color: theme.colorScheme.primary,
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  _isSaved ? 'Activity saved' : 'Review before saving',
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.headlineSmall
-                      ?.copyWith(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  _isSaved
-                      ? _savedLocally
-                          ? 'Saved on this device. Sign in to save activities to your account.'
-                          : 'The server confirmed this activity was saved to your account.'
-                      : 'This ${widget.activityType.toLowerCase()} activity is not saved yet.',
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.bodyMedium
-                      ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  '${widget.activityType.toUpperCase()} · ${_isFreeRecording ? 'FREE RECORDING' : 'PLAN A ROUTE'}',
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.titleMedium
-                      ?.copyWith(fontWeight: FontWeight.bold),
-                ),
-                if (widget.gpsPoints.isNotEmpty ||
-                    (!_isFreeRecording &&
-                        (widget.route?.coordinates.isNotEmpty ?? false))) ...[
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    height: 220,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(AppRadii.card),
-                      child: RouteMapWidget(
-                        routePoints: _isFreeRecording
-                            ? const []
-                            : widget.route?.coordinates ?? const [],
-                        trackedPoints: widget.gpsPoints,
-                        interactive: false,
-                        initialZoom: 14.2,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final margin = AppSpacing.pageMargin(constraints.maxWidth);
+              final pinActions = constraints.maxHeight >= 540 &&
+                  MediaQuery.textScalerOf(context).scale(16) <= 20;
+              final actions = _buildActions(context);
+              return Column(
+                children: [
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: EdgeInsets.fromLTRB(
+                        margin,
+                        AppSpacing.xl,
+                        margin,
+                        AppSpacing.xl,
+                      ),
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(
+                            maxWidth: AppSizes.contentMaxWidth,
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              ..._buildReview(context, units),
+                              if (!pinActions) ...[
+                                const SizedBox(height: AppSpacing.xl),
+                                actions,
+                              ],
+                            ],
+                          ),
+                        ),
                       ),
                     ),
                   ),
+                  if (pinActions)
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        border: Border(
+                          top: BorderSide(
+                            color: theme.colorScheme.outlineVariant
+                                .withValues(alpha: 0.18),
+                          ),
+                        ),
+                      ),
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          margin,
+                          AppSpacing.md,
+                          margin,
+                          AppSpacing.sm,
+                        ),
+                        child: Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(
+                              maxWidth: AppSizes.contentMaxWidth,
+                            ),
+                            child: actions,
+                          ),
+                        ),
+                      ),
+                    ),
                 ],
-                const SizedBox(height: 20),
-                Row(
-                  children: [
-                    Expanded(
-                      child: MetricTile(
-                        label: 'GPS distance',
-                        value: units
-                            .distanceFromKm(widget.distanceKm)
-                            .toStringAsFixed(2),
-                        unit: units.distanceUnit,
-                        icon: Icons.straighten,
-                        color: KaripaPalette.coral,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: MetricTile(
-                        label: 'Active duration',
-                        value: _formatDuration(widget.durationSeconds),
-                        icon: Icons.timer_outlined,
-                        color: KaripaPalette.coral,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: MetricTile(
-                        label: 'Total elapsed',
-                        value: _formatDuration(widget.totalElapsedSeconds),
-                        icon: Icons.schedule,
-                        color: KaripaPalette.coral,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: MetricTile(
-                        label: _isCycling ? 'Average speed' : 'Average pace',
-                        value: widget.paceOrSpeed,
-                        icon: Icons.speed,
-                        color: KaripaPalette.coral,
-                      ),
-                    ),
-                  ],
-                ),
-                if (!_isFreeRecording && widget.route != null) ...[
-                  const SizedBox(height: 16),
-                  Text(
-                    'Planned route: ${units.formatDistance(widget.route!.distanceKm)} actual network distance. Target: ${units.formatDistance(widget.route!.targetDistanceKm)}. Deviation: ${units.formatDistance(widget.route!.absoluteDistanceDeviationKm)} (${widget.route!.percentageDistanceDeviation.toStringAsFixed(1)}%). The GPS distance above is the recorded activity distance.',
-                    style: theme.textTheme.bodySmall,
-                  ),
-                ],
-                const SizedBox(height: 12),
-                Text(
-                  'Estimated gross calories',
-                  style: theme.textTheme.titleSmall
-                      ?.copyWith(fontWeight: FontWeight.bold),
-                ),
-                Text(
-                  widget.calories == null
-                      ? widget.calorieUnavailableReason ??
-                          'Unavailable: valid weight and supported activity context are required.'
-                      : '${widget.calories!.toStringAsFixed(0)} kcal · estimate',
-                  style: theme.textTheme.bodyMedium,
-                ),
-                if (widget.calories != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Text(
-                      'Provisional MET ${widget.calorieMetCode ?? 'unknown'} (${widget.calorieMetValue?.toStringAsFixed(1) ?? 'unknown'} MET) × ${widget.calorieWeightKg == null ? 'unknown weight' : units.weightFromKg(widget.calorieWeightKg!).toStringAsFixed(1)} ${units.weightUnit} × ${widget.calorieDurationMinutes?.toStringAsFixed(2) ?? 'unknown'} counted minutes / 60. Adviser review is pending.',
-                      style: theme.textTheme.bodySmall,
-                    ),
-                  ),
-                if (_saveError != null) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    'Could not save this activity: $_saveError. Retry to submit the same activity safely.',
-                    style: TextStyle(color: theme.colorScheme.error),
-                  ),
-                ],
-                const SizedBox(height: 24),
-                if (_isSaving)
-                  const Center(child: CircularProgressIndicator())
-                else if (_isSaved) ...[
-                  ElevatedButton(
-                    onPressed: () => Navigator.pushNamedAndRemoveUntil(
-                        context, '/home', (route) => false),
-                    child: const Text('Back to Home'),
-                  ),
-                  OutlinedButton(
-                    onPressed: () => Navigator.pushReplacementNamed(
-                        context, '/activity_history'),
-                    child: const Text('View Activity History'),
-                  ),
-                ] else ...[
-                  ElevatedButton.icon(
-                    onPressed: _saveActivity,
-                    icon: const Icon(Icons.save_outlined),
-                    label: Text(
-                        _saveError == null ? 'Save Activity' : 'Retry Save'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: KaripaPalette.coral,
-                      foregroundColor: KaripaPalette.midnight,
-                      minimumSize: const Size.fromHeight(52),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  OutlinedButton(
-                    onPressed: _discardActivity,
-                    child: const Text('Discard Activity'),
-                  ),
-                ],
-              ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildReview(BuildContext context, UnitPreferences units) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final muted = theme.textTheme.bodyMedium?.copyWith(
+      color: scheme.onSurfaceVariant,
+    );
+    final activity = widget.activityType;
+    final activityLabel = activity.isEmpty
+        ? 'Activity'
+        : '${activity[0].toUpperCase()}${activity.substring(1).toLowerCase()}';
+    final route = _isFreeRecording ? null : widget.route;
+    final routePoints = route?.coordinates ?? const <LatLng>[];
+    final paceOrSpeed = _paceOrSpeedWithUnit.firstMatch(widget.paceOrSpeed);
+
+    return [
+      Semantics(
+        header: true,
+        child: Text('Review activity', style: theme.textTheme.headlineSmall),
+      ),
+      const SizedBox(height: AppSpacing.xs),
+      Text(
+        '$activityLabel · ${_isFreeRecording ? 'Free recording' : 'Planned route'}',
+        style: muted,
+      ),
+      if (!_isSaved) ...[
+        const SizedBox(height: AppSpacing.md),
+        Text(
+          'Not saved yet',
+          style: theme.textTheme.labelLarge,
+        ),
+      ],
+      const SizedBox(height: AppSpacing.xl),
+      _ReviewMetrics(metrics: [
+        _ReviewMetric(
+          label: 'GPS distance',
+          value: units.distanceFromKm(widget.distanceKm).toStringAsFixed(2),
+          unit: units.distanceUnit,
+          icon: Icons.straighten,
+        ),
+        _ReviewMetric(
+          label: 'Active duration',
+          value: _formatDuration(widget.durationSeconds),
+          icon: Icons.timer_outlined,
+        ),
+        _ReviewMetric(
+          label: 'Total elapsed',
+          value: _formatDuration(widget.totalElapsedSeconds),
+          icon: Icons.schedule,
+        ),
+        _ReviewMetric(
+          label: _isCycling ? 'Average speed' : 'Average pace',
+          value: paceOrSpeed?.group(1) ?? widget.paceOrSpeed,
+          unit: paceOrSpeed?.group(2),
+          icon: Icons.speed,
+        ),
+      ]),
+      if (widget.gpsPoints.isNotEmpty || routePoints.isNotEmpty) ...[
+        const SizedBox(height: AppSpacing.xl),
+        SizedBox(
+          height: 148,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(AppRadii.panel),
+            child: RouteMapWidget(
+              routePoints: routePoints,
+              trackedPoints: widget.gpsPoints,
+              interactive: false,
+              initialZoom: 14.2,
             ),
           ),
+        ),
+      ],
+      if (route != null) ...[
+        const SizedBox(height: AppSpacing.lg),
+        Text('Planned route', style: theme.textTheme.titleSmall),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          'Network distance ${units.formatDistance(route.distanceKm)} · '
+          'Target ${units.formatDistance(route.targetDistanceKm)}\n'
+          'Deviation ${units.formatDistance(route.absoluteDistanceDeviationKm)} '
+          '(${route.percentageDistanceDeviation.toStringAsFixed(1)}%)',
+          style: muted,
+        ),
+      ],
+      const SizedBox(height: AppSpacing.xl),
+      Text('Estimated gross calories', style: theme.textTheme.titleSmall),
+      const SizedBox(height: AppSpacing.xs),
+      Text(
+        widget.calories == null
+            ? 'Unavailable'
+            : '${widget.calories!.toStringAsFixed(0)} kcal · estimate',
+        style: theme.textTheme.titleMedium,
+      ),
+      const SizedBox(height: AppSpacing.xs),
+      Text(
+        widget.calories == null
+            ? widget.calorieUnavailableReason ??
+                'Valid weight and supported activity context are required.'
+            : 'Provisional MET ${widget.calorieMetCode ?? 'unknown'} '
+                '(${widget.calorieMetValue?.toStringAsFixed(1) ?? 'unknown'} MET) '
+                '× ${widget.calorieWeightKg == null ? 'unknown weight' : units.weightFromKg(widget.calorieWeightKg!).toStringAsFixed(1)} '
+                '${units.weightUnit} × ${widget.calorieDurationMinutes?.toStringAsFixed(2) ?? 'unknown'} '
+                'counted minutes / 60. Adviser review is pending.',
+        style: muted,
+      ),
+    ];
+  }
+
+  Widget _buildActions(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final error = _saveError;
+    final primaryStyle = FilledButton.styleFrom(
+      minimumSize: const Size.fromHeight(AppSizes.buttonHeight),
+    );
+    final secondaryStyle = TextButton.styleFrom(
+      minimumSize: const Size.fromHeight(AppSizes.touchTarget),
+      foregroundColor: scheme.onSurface,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm,
+      ),
+    );
+    return Column(
+      key: _actionsKey,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (error != null) ...[
+          Semantics(
+            liveRegion: true,
+            child: Text(
+              'Could not save this activity.\n$error',
+              style: theme.textTheme.bodyMedium?.copyWith(color: scheme.error),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+        ],
+        if (_isSaved) ...[
+          Semantics(
+            liveRegion: true,
+            child: Text(
+              _savedLocally ? 'Saved on this device' : 'Saved to your account',
+              style: theme.textTheme.titleMedium,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          FilledButton(
+            onPressed: () => Navigator.pushNamedAndRemoveUntil(
+              context,
+              '/home',
+              (route) => false,
+            ),
+            style: primaryStyle,
+            child: const Text('Back to Home', textAlign: TextAlign.center),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          TextButton(
+            onPressed: () => Navigator.pushReplacementNamed(
+              context,
+              '/activity_history',
+            ),
+            style: secondaryStyle,
+            child: const Text('View Activity History',
+                textAlign: TextAlign.center),
+          ),
+        ] else ...[
+          FilledButton(
+            onPressed: _isSaving ? null : _saveActivity,
+            style: primaryStyle,
+            child: Semantics(
+              liveRegion: _isSaving,
+              child: Text(
+                _isSaving
+                    ? 'Saving…'
+                    : error == null
+                        ? 'Save activity'
+                        : 'Retry save',
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          TextButton(
+            onPressed: _isSaving ? null : _discardActivity,
+            style: secondaryStyle,
+            child: const Text('Discard activity', textAlign: TextAlign.center),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _ReviewMetrics extends StatelessWidget {
+  const _ReviewMetrics({required this.metrics});
+
+  final List<_ReviewMetric> metrics;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final scaler = MediaQuery.textScalerOf(context);
+        final cardWidth = (constraints.maxWidth - AppSpacing.md) / 2;
+        final twoColumns = scaler.scale(16) <= 20 &&
+            cardWidth >= 124 &&
+            metrics.every((metric) {
+              final painter = TextPainter(
+                text: TextSpan(
+                    text: metric.value, style: metric.valueStyle(context)),
+                textScaler: scaler,
+                textDirection: Directionality.of(context),
+              )..layout();
+              final fits = painter.width <= cardWidth - 2 * AppSpacing.md;
+              painter.dispose();
+              return fits;
+            });
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          spacing: AppSpacing.md,
+          children: [
+            if (twoColumns)
+              for (var i = 0; i < metrics.length; i += 2)
+                IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    spacing: AppSpacing.md,
+                    children: [
+                      for (final metric in [metrics[i], metrics[i + 1]])
+                        Expanded(
+                          child: metric.buildCard(
+                            context,
+                            paired: true,
+                            reserveUnitSpace: metrics[i].unit != null ||
+                                metrics[i + 1].unit != null,
+                          ),
+                        ),
+                    ],
+                  ),
+                )
+            else
+              for (final metric in metrics) metric.buildCard(context),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _ReviewMetric {
+  const _ReviewMetric({
+    required this.label,
+    required this.value,
+    required this.icon,
+    this.unit,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final String? unit;
+
+  TextStyle? valueStyle(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return (value == 'Unavailable' ? text.titleMedium : text.headlineSmall)
+        ?.copyWith(
+      fontWeight: FontWeight.w700,
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
+  }
+
+  Widget buildCard(
+    BuildContext context, {
+    bool paired = false,
+    bool reserveUnitSpace = false,
+  }) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final labelStyle = theme.textTheme.labelMedium?.copyWith(
+      color: scheme.onSurfaceVariant,
+    );
+    final unitStyle = theme.textTheme.bodySmall?.copyWith(
+      color: scheme.onSurfaceVariant,
+    );
+    return Semantics(
+      container: true,
+      label: '$label: $value${unit == null ? '' : ' $unit'}',
+      excludeSemantics: true,
+      child: Container(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerLow,
+          border: Border.all(
+            color: scheme.outlineVariant.withValues(alpha: 0.18),
+          ),
+          borderRadius: BorderRadius.circular(AppRadii.panel),
+        ),
+        child: Column(
+          mainAxisSize: paired ? MainAxisSize.max : MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(icon, size: 16, color: scheme.onSurfaceVariant),
+                const SizedBox(width: AppSpacing.xs),
+                Expanded(child: Text(label, style: labelStyle)),
+              ],
+            ),
+            if (paired) const Spacer(),
+            const SizedBox(height: AppSpacing.sm),
+            Text(value, style: valueStyle(context)),
+            if (unit != null || reserveUnitSpace) ...[
+              const SizedBox(height: AppSpacing.xs),
+              Text(unit ?? ' ', style: unitStyle),
+            ],
+          ],
         ),
       ),
     );
