@@ -207,7 +207,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   return null;
                 },
                 decoration: InputDecoration(
-                  labelText: 'Full Name',
+                  labelText: 'Username',
                   hintText: 'Alex Santos',
                   prefixIcon: Icon(Icons.person_outline,
                       color: Theme.of(context).colorScheme.onSurface),

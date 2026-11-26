@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import '../theme/design_tokens.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:provider/provider.dart';
+
 import '../models/route_model.dart';
-import '../widgets/status_badge.dart';
-import '../widgets/route_map_widget.dart';
 import '../services/unit_preferences.dart';
+import '../theme/design_tokens.dart';
+import '../widgets/karipa_button.dart';
+import '../widgets/route_map_widget.dart';
+import 'route_presentation.dart';
 
 class RecommendedRoutesScreen extends StatelessWidget {
   final List<PathRoute> routes;
@@ -25,344 +27,239 @@ class RecommendedRoutesScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final units = context.watch<UnitPreferences>();
     return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      appBar: AppBar(
-        title: const Text('Recommended Routes',
-            style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: Theme.of(context).colorScheme.surface,
-        elevation: 0,
-      ),
+      appBar: routeAppBar(context, 'Recommended Routes'),
       body: SafeArea(
-        child: CustomScrollView(
-          slivers: [
-            SliverPadding(
-              padding: const EdgeInsets.all(20.0),
-              sliver: SliverList(
-                delegate: SliverChildListDelegate(
-                  [
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.surface,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                            color: Theme.of(context).colorScheme.outline),
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .surfaceContainer,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Icon(Icons.explore,
-                                color: Theme.of(context).colorScheme.onSurface,
-                                size: 24),
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '${activity.toUpperCase()} • ${units.formatDistance(targetDistanceKm, decimals: 1).toUpperCase()} TARGET',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onSurfaceVariant,
-                                    letterSpacing: 0.8,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  '${routes.length} valid routes ranked by actual network distance',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                    color:
-                                        Theme.of(context).colorScheme.onSurface,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    _buildRankingNotice(context),
-                    const SizedBox(height: 16),
-                  ],
-                ),
+        top: false,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final inset = routePageInset(constraints.maxWidth);
+            return ListView.builder(
+              padding: EdgeInsets.fromLTRB(
+                  inset, AppSpacing.md, inset, AppSpacing.xl),
+              itemCount: routes.length + 1,
+              itemBuilder: (context, index) {
+                if (index == 0) {
+                  return _RouteSummary(
+                    activity: activity,
+                    target: units.formatDistance(targetDistanceKm, decimals: 1),
+                    count: routes.length,
+                    firstRoute: routes.firstOrNull,
+                    units: units,
+                  );
+                }
+                final route = routes[index - 1];
+                return Padding(
+                  key: ValueKey(route.id),
+                  padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+                  child: _RouteCard(
+                    route: route,
+                    units: units,
+                    targetDistanceKm: targetDistanceKm,
+                    onView: () {
+                      Navigator.pushNamed(
+                        context,
+                        '/route_details',
+                        arguments: {
+                          'route': route,
+                          'activity': activity,
+                          'currentLocation': currentLocation,
+                        },
+                      );
+                    },
+                  ),
+                );
+              },
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _RouteSummary extends StatelessWidget {
+  const _RouteSummary({
+    required this.activity,
+    required this.target,
+    required this.count,
+    required this.firstRoute,
+    required this.units,
+  });
+
+  final String activity;
+  final String target;
+  final int count;
+  final PathRoute? firstRoute;
+  final UnitPreferences units;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final threshold = firstRoute?.maximumDistanceDeviationKm;
+    final closeCandidateAvailable = firstRoute?.closeCandidateAvailable;
+    final outsideTolerance =
+        threshold != null && closeCandidateAvailable == false;
+    final preferenceNotice = firstRoute?.preferenceNotice?.trim();
+    final warnings = [
+      if (outsideTolerance)
+        'No route is within ${units.formatDistance(threshold)} of the target.',
+      if (preferenceNotice != null && preferenceNotice.isNotEmpty)
+        preferenceNotice,
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('${routeActivityLabel(activity)} · $target target',
+              style: theme.textTheme.titleMedium),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            count == 1 ? '1 route available' : '$count routes available',
+            style: theme.textTheme.bodyMedium
+                ?.copyWith(color: colors.onSurfaceVariant),
+          ),
+          if (warnings.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.md),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: colors.surfaceContainer,
+                borderRadius: BorderRadius.circular(AppRadii.control),
               ),
-            ),
-            SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: 20.0),
-              sliver: SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) => _buildRouteCard(context, routes[index]),
-                  childCount: routes.length,
+              child: Padding(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  spacing: AppSpacing.sm,
+                  children: [
+                    for (final warning in warnings)
+                      Text(warning, style: theme.textTheme.bodySmall),
+                  ],
                 ),
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRankingNotice(BuildContext context) {
-    final units = context.read<UnitPreferences>();
-    final firstRoute = routes.isEmpty ? null : routes.first;
-    final threshold = firstRoute?.maximumDistanceDeviationKm;
-    final rankingMessage = firstRoute?.rankingSource == 'ai_assisted'
-        ? 'AI explanations and preference signals can break ties between routes within 0.05 km of the closest match.'
-        : 'Deterministic ranking was used. Route validity and actual distance take priority.';
-    final thresholdMessage = threshold == null
-        ? 'No distance tolerance was provided by the route service.'
-        : firstRoute!.closeCandidateAvailable == true
-            ? 'Only routes within ${units.formatDistance(threshold)} of the target are shown.'
-            : 'No route is within ${units.formatDistance(threshold)} of the target.';
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surfaceContainer,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Theme.of(context).colorScheme.outline),
-          ),
-          child: Text(
-            '$rankingMessage $thresholdMessage',
-            style: TextStyle(
-              fontSize: 13,
-              color: Theme.of(context).colorScheme.onSurface,
-            ),
-          ),
-        ),
-        if (firstRoute?.preferenceNotice != null) ...[
-          const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainer,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: Theme.of(context).colorScheme.outline),
-            ),
-            child: Text(
-              firstRoute!.preferenceNotice!,
-              style: TextStyle(
-                fontSize: 13,
-                color: Theme.of(context).colorScheme.onSurface,
-              ),
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildRouteCard(BuildContext context, PathRoute route) {
-    final units = context.read<UnitPreferences>();
-    final isTop = route.isTopRecommendation;
-
-    return Container(
-      key: ValueKey(route.id),
-      margin: const EdgeInsets.only(bottom: 20),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: isTop
-              ? Theme.of(context).colorScheme.outline
-              : Theme.of(context).colorScheme.outline,
-          width: isTop ? 2.0 : 1.0,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: isTop
-                ? KaripaPalette.midnight.withValues(alpha: 0.12)
-                : KaripaPalette.midnight.withValues(alpha: 0.03),
-            blurRadius: 14,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Top Badges bar
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
-            child: Wrap(
-              alignment: WrapAlignment.spaceBetween,
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                StatusBadge(
-                  text: isTop
-                      ? route.rankingSource == 'ai_assisted'
-                          ? 'AI recommendation'
-                          : 'Closest distance'
-                      : 'Alternative',
-                  color: Theme.of(context).colorScheme.onSurface,
-                  icon: isTop ? Icons.star : Icons.thumb_up_alt_outlined,
-                ),
-              ],
-            ),
-          ),
-
-          // Route Name & Metrics
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          const SizedBox(height: AppSpacing.xs),
+          if (firstRoute != null)
+            ExpansionTile(
+              key: const PageStorageKey('route-ranking-disclosure'),
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: const EdgeInsets.only(bottom: AppSpacing.md),
+              expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+              shape: const Border(),
+              collapsedShape: const Border(),
+              iconColor: colors.onSurfaceVariant,
+              collapsedIconColor: colors.onSurfaceVariant,
+              title: Text('How routes are ranked',
+                  style: theme.textTheme.labelLarge),
               children: [
                 Text(
-                  route.name,
-                  style: TextStyle(
-                    fontSize: 19,
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.onSurface,
-                    letterSpacing: -0.3,
+                  firstRoute?.rankingSource == 'ai_assisted'
+                      ? 'AI explanations and preference signals can break ties between routes within 0.05 km of the closest match.'
+                      : 'Deterministic ranking was used. Route validity and actual distance take priority.',
+                  style: theme.textTheme.bodySmall,
+                ),
+                if (!outsideTolerance) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    threshold == null
+                        ? 'No distance tolerance was provided by the route service.'
+                        : closeCandidateAvailable == true
+                            ? 'Only routes within ${units.formatDistance(threshold)} of the target are shown.'
+                            : 'Distance tolerance was ${units.formatDistance(threshold)}.',
+                    style: theme.textTheme.bodySmall,
                   ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    _buildMetricChip(context, Icons.straighten,
-                        'Actual ${units.formatDistance(route.distanceKm)}'),
-                    const SizedBox(width: 12),
-                    _buildMetricChip(context, Icons.flag_outlined,
-                        'Target ${units.formatDistance(targetDistanceKm)}'),
-                    if (route.features['isLoop'] == true) ...[
-                      const SizedBox(width: 12),
-                      _buildMetricChip(context, Icons.loop, 'Loop Circuit'),
-                    ],
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  'Distance difference: ${units.formatDistance(route.absoluteDistanceDeviationKm)} (${route.percentageDistanceDeviation.toStringAsFixed(1)}%)',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: Theme.of(context).colorScheme.onSurface,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  route.reasoning.isEmpty
-                      ? 'Actual route distance is used for distance-first ordering.'
-                      : route.reasoning,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    height: 1.3,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-            child: Text(
-              (route.features['roadTypes'] as List?)?.isNotEmpty == true
-                  ? 'Available map labels: ${(route.features['roadTypes'] as List).join(', ')}. Sidewalks, cycling infrastructure, elevation, and lighting are not verified by the available routing data.'
-                  : 'Geographic detail is limited: road classifications, sidewalks, cycling infrastructure, elevation, and lighting are unavailable or unverified.',
-              style: TextStyle(
-                fontSize: 12,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-
-          // Real Map Preview snippet
-          if (route.coordinates.isNotEmpty)
-            Container(
-              height: 160,
-              margin: const EdgeInsets.symmetric(horizontal: 16),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(14),
-                border:
-                    Border.all(color: Theme.of(context).colorScheme.outline),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: RouteMapWidget(
-                  routePoints: route.coordinates,
-                  interactive: false,
-                  initialZoom: 13.8,
-                ),
-              ),
-            ),
-
-          // View Details Action
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: ElevatedButton(
-              onPressed: () {
-                Navigator.pushNamed(
-                  context,
-                  '/route_details',
-                  arguments: {
-                    'route': route,
-                    'activity': activity,
-                    'currentLocation': currentLocation,
-                  },
-                );
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: isTop
-                    ? KaripaPalette.coral
-                    : Theme.of(context).colorScheme.surfaceContainer,
-                foregroundColor: isTop
-                    ? KaripaPalette.midnight
-                    : Theme.of(context).colorScheme.onSurface,
-                minimumSize: const Size.fromHeight(48),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-                elevation: 0,
-              ),
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text('View Route Details',
-                      style: TextStyle(fontWeight: FontWeight.bold)),
-                  SizedBox(width: 6),
-                  Icon(Icons.arrow_forward, size: 16),
                 ],
-              ),
+              ],
             ),
-          ),
         ],
       ),
     );
   }
+}
 
-  Widget _buildMetricChip(BuildContext context, IconData icon, String label) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 15, color: Theme.of(context).colorScheme.onSurface),
-        const SizedBox(width: 4),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: Theme.of(context).colorScheme.onSurface,
-          ),
+class _RouteCard extends StatelessWidget {
+  const _RouteCard({
+    required this.route,
+    required this.units,
+    required this.targetDistanceKm,
+    required this.onView,
+  });
+
+  final PathRoute route;
+  final UnitPreferences units;
+  final double targetDistanceKm;
+  final VoidCallback onView;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final supportingText =
+        theme.textTheme.bodyMedium?.copyWith(color: colors.onSurfaceVariant);
+    final distance = units.formatDistance(route.distanceKm);
+    final time = route.durationSeconds > 0
+        ? 'Est. ${route.formattedDuration}'
+        : 'Time estimate unavailable';
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(AppRadii.panel),
+        border:
+            Border.all(color: colors.outlineVariant.withValues(alpha: 0.36)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (route.coordinates.isNotEmpty)
+              Semantics(
+                image: true,
+                label: 'Route map preview',
+                child: SizedBox(
+                  height: 152,
+                  child: RouteMapWidget(
+                    routePoints: route.coordinates,
+                    interactive: false,
+                    initialZoom: 13.8,
+                  ),
+                ),
+              )
+            else
+              Text('Map preview unavailable', style: supportingText),
+            const SizedBox(height: AppSpacing.lg),
+            Semantics(
+              header: true,
+              child: Text(routeDisplayName(route),
+                  style: theme.textTheme.titleMedium),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Text('$distance · $time', style: theme.textTheme.titleSmall),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              routeTargetComparison(route, units,
+                  requestedTargetKm: targetDistanceKm),
+              style: supportingText,
+            ),
+            if (route.isTopRecommendation) ...[
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                route.rankingSource == 'ai_assisted'
+                    ? 'AI-assisted recommendation'
+                    : 'Recommended',
+                style: theme.textTheme.labelMedium
+                    ?.copyWith(color: colors.onSurfaceVariant),
+              ),
+            ],
+            const SizedBox(height: AppSpacing.md),
+            KaripaButton.secondary(label: 'View route', onPressed: onView),
+          ],
         ),
-      ],
+      ),
     );
   }
 }
