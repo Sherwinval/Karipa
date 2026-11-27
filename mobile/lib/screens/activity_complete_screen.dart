@@ -417,9 +417,10 @@ class _ActivityCompleteScreenState extends State<ActivityCompleteScreen> {
           ),
           const SizedBox(height: AppSpacing.sm),
           TextButton(
-            onPressed: () => Navigator.pushReplacementNamed(
+            onPressed: () => Navigator.pushNamedAndRemoveUntil(
               context,
               '/activity_history',
+              (route) => false,
             ),
             style: secondaryStyle,
             child: const Text('View Activity History',

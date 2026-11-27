@@ -6,6 +6,8 @@ import 'karipa_button.dart';
 import 'karipa_feedback.dart';
 import 'section_heading.dart';
 import 'karipa_logo.dart';
+import 'main_navigation_bar.dart';
+import 'main_tab_scope.dart';
 
 /// Home presentation only. The screen owns fetching, totals and navigation.
 class HomeDashboard extends StatelessWidget {
@@ -45,11 +47,12 @@ class HomeDashboard extends StatelessWidget {
     final scheme = theme.colorScheme;
     final units = context.watch<UnitPreferences>();
 
-    return Scaffold(
+    return MainSection(
       backgroundColor: theme.brightness == Brightness.light
           ? KaripaPalette.homeBackground
           : scheme.surface,
       appBar: AppBar(
+        automaticallyImplyLeading: MainTabScope.maybeOf(context) == null,
         backgroundColor: KaripaPalette.navy,
         foregroundColor: KaripaPalette.white,
         toolbarHeight: kToolbarHeight,
@@ -155,7 +158,7 @@ class HomeDashboard extends StatelessWidget {
           }),
         ),
       ),
-      bottomNavigationBar: _HomeNavigation(
+      bottomNavigationBar: MainNavigationBar(
         currentIndex: currentIndex,
         onTap: onNavigationTapped,
       ),
@@ -377,118 +380,6 @@ class _HomeEmptyHistory extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _HomeNavigation extends StatelessWidget {
-  const _HomeNavigation({required this.currentIndex, required this.onTap});
-
-  final int currentIndex;
-  final ValueChanged<int> onTap;
-
-  static const _destinations = [
-    ('Home', Icons.dashboard_outlined, Icons.dashboard),
-    ('Leaderboard', Icons.leaderboard_outlined, Icons.leaderboard),
-    ('History', Icons.history_outlined, Icons.history),
-    ('Profile', Icons.person_outline, Icons.person),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final labelStyle = theme.textTheme.labelSmall!.copyWith(
-      fontSize: 12,
-      letterSpacing: 0,
-    );
-    return Material(
-      color: scheme.surface,
-      shape: Border(top: BorderSide(color: _homeBoundary(scheme))),
-      child: SafeArea(
-        top: false,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final widestLabel = TextPainter(
-              text: TextSpan(text: _destinations[1].$1, style: labelStyle),
-              textDirection: Directionality.of(context),
-              textScaler: MediaQuery.textScalerOf(context),
-            )..layout();
-            final useTwoRows =
-                widestLabel.width + AppSpacing.sm > constraints.maxWidth / 4;
-            widestLabel.dispose();
-            if (useTwoRows) {
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _row(context, labelStyle, 0, 2),
-                  _row(context, labelStyle, 2, 4),
-                ],
-              );
-            }
-            return _row(context, labelStyle, 0, _destinations.length);
-          },
-        ),
-      ),
-    );
-  }
-
-  Widget _row(BuildContext context, TextStyle style, int start, int end) {
-    return IntrinsicHeight(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (var index = start; index < end; index++)
-            Expanded(child: _destination(context, index, style)),
-        ],
-      ),
-    );
-  }
-
-  Widget _destination(BuildContext context, int index, TextStyle style) {
-    final (label, icon, selectedIcon) = _destinations[index];
-    final selected = index == currentIndex;
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    return Semantics(
-      button: true,
-      selected: selected,
-      label: label,
-      child: InkWell(
-        onTap: () => onTap(index),
-        child: ExcludeSemantics(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-                vertical: AppSpacing.sm, horizontal: AppSpacing.xs),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.start,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.md, vertical: AppSpacing.xs),
-                  decoration: selected
-                      ? ShapeDecoration(
-                          color: scheme.primary, shape: const StadiumBorder())
-                      : null,
-                  child: Icon(selected ? selectedIcon : icon,
-                      size: AppSizes.compactIcon,
-                      color: selected
-                          ? scheme.onPrimary
-                          : scheme.onSurfaceVariant),
-                ),
-                const SizedBox(height: AppSpacing.xs),
-                Text(label,
-                    textAlign: TextAlign.center,
-                    style: style.copyWith(
-                      color:
-                          selected ? scheme.onSurface : scheme.onSurfaceVariant,
-                      fontWeight: selected ? FontWeight.w800 : null,
-                    )),
-              ],
-            ),
-          ),
-        ),
       ),
     );
   }

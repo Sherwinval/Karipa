@@ -6,6 +6,7 @@ import '../services/unit_preferences.dart';
 import '../models/activity_model.dart';
 import 'package:intl/intl.dart';
 import '../widgets/home_dashboard.dart';
+import '../widgets/main_tab_scope.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -16,6 +17,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final int _currentIndex = 0;
+  bool _wasActive = true;
   bool _isLoading = true;
   List<ActivityModel> _activities = [];
 
@@ -28,6 +30,15 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadUserDashboard();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final scope = MainTabScope.maybeOf(context);
+    final active = scope == null || scope.index == 0;
+    if (active && !_wasActive && !_isLoading) _loadUserDashboard();
+    _wasActive = active;
   }
 
   Future<void> _loadUserDashboard() async {
@@ -64,6 +75,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _onNavigationTapped(int index) {
+    final scope = MainTabScope.maybeOf(context);
+    if (scope != null) {
+      scope.select(index);
+      return;
+    }
     if (index == _currentIndex) return;
     if (index == 1) {
       Navigator.pushNamed(context, '/leaderboard')
@@ -117,12 +133,18 @@ class _HomeScreenState extends State<HomeScreen> {
       currentIndex: _currentIndex,
       onRefresh: _loadUserDashboard,
       onNavigationTapped: _onNavigationTapped,
-      onProfile: () => Navigator.pushNamed(context, '/profile')
-          .then((_) => _loadUserDashboard()),
+      onProfile: () => _onNavigationTapped(3),
       onStartActivity: () {
         Navigator.pushNamed(context, '/activity_selection');
       },
-      onViewAll: () => Navigator.pushNamed(context, '/activity_history'),
+      onViewAll: () {
+        final scope = MainTabScope.maybeOf(context);
+        if (scope != null) {
+          scope.select(2);
+        } else {
+          Navigator.pushNamed(context, '/activity_history');
+        }
+      },
     );
   }
 

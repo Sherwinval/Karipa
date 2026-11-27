@@ -5,6 +5,7 @@ import '../services/api_service.dart';
 import '../models/activity_model.dart';
 import 'package:provider/provider.dart';
 import '../services/unit_preferences.dart';
+import '../widgets/main_tab_scope.dart';
 
 class ActivityHistoryScreen extends StatefulWidget {
   const ActivityHistoryScreen({super.key});
@@ -15,6 +16,7 @@ class ActivityHistoryScreen extends StatefulWidget {
 
 class _ActivityHistoryScreenState extends State<ActivityHistoryScreen> {
   bool _isLoading = true;
+  bool _wasActive = true;
   List<ActivityModel> _activities = [];
   String? _errorMessage;
 
@@ -22,6 +24,15 @@ class _ActivityHistoryScreenState extends State<ActivityHistoryScreen> {
   void initState() {
     super.initState();
     _fetchHistory();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final scope = MainTabScope.maybeOf(context);
+    final active = scope == null || scope.index == 2;
+    if (active && !_wasActive && !_isLoading) _fetchHistory();
+    _wasActive = active;
   }
 
   Future<void> _fetchHistory() async {
@@ -61,15 +72,18 @@ class _ActivityHistoryScreenState extends State<ActivityHistoryScreen> {
   @override
   Widget build(BuildContext context) {
     final units = context.watch<UnitPreferences>();
-    return Scaffold(
+    return MainSection(
       backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          tooltip: 'Back',
-          onPressed: () => Navigator.of(context)
-              .pushNamedAndRemoveUntil('/home', (route) => false),
-        ),
+        automaticallyImplyLeading: false,
+        leading: MainTabScope.maybeOf(context) != null
+            ? null
+            : IconButton(
+                icon: const Icon(Icons.arrow_back),
+                tooltip: 'Back',
+                onPressed: () => Navigator.of(context)
+                    .pushNamedAndRemoveUntil('/home', (route) => false),
+              ),
         title: const Text('Activity History',
             style: TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: Theme.of(context).colorScheme.surface,
@@ -84,73 +98,80 @@ class _ActivityHistoryScreenState extends State<ActivityHistoryScreen> {
                     color: Theme.of(context).colorScheme.onSurface))
             : _errorMessage != null
                 ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(32),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            _errorMessage!,
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurfaceVariant,
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          ElevatedButton(
-                            onPressed: _fetchHistory,
-                            child: const Text('Try Again'),
-                          ),
-                        ],
-                      ),
-                    ),
-                  )
-                : _activities.isEmpty
-                    ? Center(
+                    child: SingleChildScrollView(
+                        physics: const AlwaysScrollableScrollPhysics(),
                         child: Padding(
-                          padding: const EdgeInsets.all(32.0),
+                          padding: const EdgeInsets.all(32),
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.history_toggle_off,
-                                  size: 64,
-                                  color:
-                                      Theme.of(context).colorScheme.onSurface),
-                              const SizedBox(height: 16),
-                              const Text(
-                                'No Activities Found',
-                                style: TextStyle(
-                                    fontSize: 18, fontWeight: FontWeight.bold),
-                              ),
-                              const SizedBox(height: 8),
                               Text(
-                                'Completed outdoor workouts recorded through GPS will be saved here automatically.',
+                                _errorMessage!,
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onSurfaceVariant,
-                                    fontSize: 13),
-                              ),
-                              const SizedBox(height: 24),
-                              ElevatedButton(
-                                onPressed: () {
-                                  Navigator.pushNamed(
-                                      context, '/activity_selection');
-                                },
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: KaripaPalette.coral,
-                                  foregroundColor: KaripaPalette.midnight,
-                                  shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12)),
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
                                 ),
-                                child: const Text('Start an Activity'),
+                              ),
+                              const SizedBox(height: 16),
+                              ElevatedButton(
+                                onPressed: _fetchHistory,
+                                child: const Text('Try Again'),
                               ),
                             ],
                           ),
-                        ),
+                        )),
+                  )
+                : _activities.isEmpty
+                    ? Center(
+                        child: SingleChildScrollView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            child: Padding(
+                              padding: const EdgeInsets.all(32.0),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.history_toggle_off,
+                                      size: 64,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurface),
+                                  const SizedBox(height: 16),
+                                  const Text(
+                                    'No Activities Found',
+                                    style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Completed outdoor workouts recorded through GPS will be saved here automatically.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant,
+                                        fontSize: 13),
+                                  ),
+                                  const SizedBox(height: 24),
+                                  ElevatedButton(
+                                    onPressed: () {
+                                      Navigator.pushNamed(
+                                          context, '/activity_selection');
+                                    },
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: KaripaPalette.coral,
+                                      foregroundColor: KaripaPalette.midnight,
+                                      shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(12)),
+                                    ),
+                                    child: const Text('Start an Activity'),
+                                  ),
+                                ],
+                              ),
+                            )),
                       )
                     : ListView.builder(
                         padding: const EdgeInsets.all(16.0),
@@ -251,9 +272,9 @@ class _ActivityHistoryScreenState extends State<ActivityHistoryScreen> {
                                     const SizedBox(height: 14),
                                     const Divider(height: 1),
                                     const SizedBox(height: 14),
-                                    Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceBetween,
+                                    Wrap(
+                                      spacing: AppSpacing.lg,
+                                      runSpacing: AppSpacing.md,
                                       children: [
                                         _buildMetricCol(
                                             'DISTANCE',

@@ -15,7 +15,7 @@ import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
 import 'screens/otp_screen.dart';
 import 'screens/password_recovery_screen.dart';
-import 'screens/home_screen.dart';
+import 'screens/main_navigation_shell.dart';
 import 'screens/activity_selection_screen.dart';
 import 'screens/route_planning_screen.dart';
 import 'screens/recommended_routes_screen.dart';
@@ -23,10 +23,7 @@ import 'screens/route_details_screen.dart';
 import 'screens/ready_to_start_screen.dart';
 import 'screens/active_tracking_screen.dart';
 import 'screens/activity_complete_screen.dart';
-import 'screens/activity_history_screen.dart';
 import 'screens/activity_details_screen.dart';
-import 'screens/profile_screen.dart';
-import 'screens/leaderboard_screen.dart';
 import 'theme/app_theme.dart';
 
 import 'services/theme_service.dart';
@@ -84,7 +81,9 @@ class KaripaApp extends StatelessWidget {
             );
 
           case '/home':
-            return MaterialPageRoute(builder: (_) => const HomeScreen());
+            return MaterialPageRoute(
+                settings: settings,
+                builder: (_) => const MainNavigationShell());
 
           case '/activity_selection':
             return MaterialPageRoute(
@@ -171,7 +170,8 @@ class KaripaApp extends StatelessWidget {
 
           case '/activity_history':
             return MaterialPageRoute(
-                builder: (_) => const ActivityHistoryScreen());
+                settings: settings,
+                builder: (_) => const MainNavigationShell(initialIndex: 2));
 
           case '/activity_details':
             return MaterialPageRoute(
@@ -181,10 +181,14 @@ class KaripaApp extends StatelessWidget {
             );
 
           case '/profile':
-            return MaterialPageRoute(builder: (_) => const ProfileScreen());
+            return MaterialPageRoute(
+                settings: settings,
+                builder: (_) => const MainNavigationShell(initialIndex: 3));
 
           case '/leaderboard':
-            return MaterialPageRoute(builder: (_) => const LeaderboardScreen());
+            return MaterialPageRoute(
+                settings: settings,
+                builder: (_) => const MainNavigationShell(initialIndex: 1));
 
           default:
             return MaterialPageRoute(builder: (_) => const SplashScreen());

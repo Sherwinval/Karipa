@@ -10,6 +10,7 @@ import '../services/auth_service.dart';
 import '../services/theme_service.dart';
 import '../services/api_service.dart';
 import '../services/unit_preferences.dart';
+import '../widgets/main_tab_scope.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -136,10 +137,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (_renderedUnitSystem != units.system) {
       _syncControllersToDraft(units);
     }
+    final active = MainTabScope.maybeOf(context)?.isActive(3) ?? true;
+    if (!active) {
+      _profileSyncTimer?.cancel();
+      _profileSyncTimer = null;
+      return;
+    }
     if (!_profileLoadStarted &&
         Provider.of<AuthService>(context).isAuthenticated) {
       _profileLoadStarted = true;
       _loadMeasurements();
+    }
+    if (Provider.of<AuthService>(context).isAuthenticated) {
       _profileSyncTimer ??= Timer.periodic(
         const Duration(seconds: 5),
         (_) => _refreshProfileFromServer(),
@@ -319,9 +328,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final headerInset =
         AppSpacing.pageMargin(MediaQuery.sizeOf(context).width) - AppSpacing.sm;
 
-    return Scaffold(
+    return MainSection(
       backgroundColor: pageColor,
       appBar: AppBar(
+        automaticallyImplyLeading: MainTabScope.maybeOf(context) == null,
         title: const Text('Profile',
             style: TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: pageColor,
@@ -449,8 +459,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       leading: const Icon(Icons.history),
                       title: const Text('Activity History'),
                       trailing: const Icon(Icons.chevron_right),
-                      onTap: () =>
-                          Navigator.pushNamed(context, '/activity_history')),
+                      onTap: () {
+                        final scope = MainTabScope.maybeOf(context);
+                        if (scope != null) {
+                          scope.select(2);
+                        } else {
+                          Navigator.pushNamed(context, '/activity_history');
+                        }
+                      }),
                   Divider(
                       height: 1,
                       indent: AppSizes.icon + AppSpacing.xxl,

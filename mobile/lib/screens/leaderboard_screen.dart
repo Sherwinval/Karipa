@@ -5,6 +5,8 @@ import '../services/auth_service.dart';
 import '../services/unit_preferences.dart';
 import '../theme/design_tokens.dart';
 import '../widgets/karipa_feedback.dart';
+import '../widgets/main_tab_scope.dart';
+import '../widgets/main_navigation_bar.dart';
 
 class LeaderboardScreen extends StatefulWidget {
   const LeaderboardScreen({super.key});
@@ -15,6 +17,7 @@ class LeaderboardScreen extends StatefulWidget {
 
 class _LeaderboardScreenState extends State<LeaderboardScreen> {
   bool _isLoading = true;
+  bool _wasActive = true;
   String? _error;
   DateTime? _periodStart;
   DateTime? _periodEnd;
@@ -24,6 +27,15 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   void initState() {
     super.initState();
     _loadLeaderboard();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final scope = MainTabScope.maybeOf(context);
+    final active = scope == null || scope.index == 1;
+    if (active && !_wasActive && !_isLoading) _loadLeaderboard();
+    _wasActive = active;
   }
 
   Future<void> _loadLeaderboard() async {
@@ -66,6 +78,11 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   }
 
   void _onNavigationTapped(int index) {
+    final scope = MainTabScope.maybeOf(context);
+    if (scope != null) {
+      scope.select(index);
+      return;
+    }
     if (index == 1) return;
     final route = switch (index) {
       0 => '/home',
@@ -90,8 +107,9 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
       }
     }
 
-    return Scaffold(
+    return MainSection(
       appBar: AppBar(
+        automaticallyImplyLeading: MainTabScope.maybeOf(context) == null,
         title: const Text('Weekly Leaderboard'),
         actions: [
           IconButton(
@@ -231,19 +249,9 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
           ),
         ),
       ),
-      bottomNavigationBar: BottomNavigationBar(
+      bottomNavigationBar: MainNavigationBar(
         currentIndex: 1,
         onTap: _onNavigationTapped,
-        items: const [
-          BottomNavigationBarItem(
-              icon: Icon(Icons.dashboard_outlined), label: 'Home'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.leaderboard_outlined), label: 'Leaderboard'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.history_outlined), label: 'History'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.person_outline), label: 'Profile'),
-        ],
       ),
     );
   }
@@ -278,8 +286,7 @@ class _YourRankCard extends StatelessWidget {
                 children: [
                   Text('Your weekly rank',
                       style: Theme.of(context).textTheme.labelLarge),
-                  Text(name,
-                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                  Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
                 ],
               ),
             ),
