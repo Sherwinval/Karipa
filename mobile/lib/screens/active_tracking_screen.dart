@@ -386,133 +386,94 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen>
     final units = context.watch<UnitPreferences>();
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final background = theme.brightness == Brightness.light
-        ? const Color(0xFFF5F4EF)
-        : scheme.surface;
     final activity = widget.activity;
     final activityName = activity.isEmpty
         ? 'Activity'
         : activity[0].toUpperCase() + activity.substring(1).toLowerCase();
 
+    final showReminder = _hasStarted && !_isPaused;
+    final reminder = Padding(
+        padding: const EdgeInsets.only(top: AppSpacing.sm),
+        child: Text('Keep Karipa open while recording.',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall
+                ?.copyWith(color: scheme.onSurfaceVariant)));
     return PopScope(
       canPop: !_hasStarted,
       onPopInvokedWithResult: (didPop, result) async {
         if (!didPop) await _confirmFinishActivity();
       },
       child: Scaffold(
-        backgroundColor: background,
+        backgroundColor: scheme.surface,
         body: SafeArea(
           bottom: false,
           child: _RecordingWidth(
             horizontalInset: 0,
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.lg,
-                    vertical: AppSpacing.xs,
-                  ),
-                  child: Row(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                // Size the map from the viewport before entering the scroll view.
+                final mapHeight =
+                    (constraints.maxHeight * 0.44).clamp(140.0, 420.0);
+                return SingleChildScrollView(
+                  key: const PageStorageKey('recording-content'),
+                  // The side gutters allow a page swipe alongside the map.
+                  padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.sm, 0, AppSpacing.sm, AppSpacing.lg),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Expanded(
-                        child: Wrap(
-                          spacing: AppSpacing.sm,
-                          runSpacing: AppSpacing.xs,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            DecoratedBox(
-                              decoration: BoxDecoration(
-                                color: scheme.surfaceContainer,
-                                borderRadius:
-                                    BorderRadius.circular(AppRadii.control),
-                              ),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: AppSpacing.sm,
-                                  vertical: AppSpacing.xs,
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                        !_hasStarted
-                                            ? Icons.play_arrow
-                                            : _isPaused
-                                                ? Icons.pause
-                                                : Icons.circle,
-                                        size: _isPaused ? 14 : 8,
-                                        color: _isPaused
-                                            ? scheme.onSurfaceVariant
-                                            : scheme.primary),
-                                    const SizedBox(width: AppSpacing.xs),
-                                    Flexible(
-                                      child: Text(
-                                        !_hasStarted
-                                            ? 'Ready'
-                                            : _isPaused
-                                                ? 'Paused'
-                                                : 'Tracking live',
-                                        style: theme.textTheme.labelMedium,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
+                      _RecordingHeader(
+                          activityName: activityName,
+                          hasStarted: _hasStarted,
+                          paused: _isPaused,
+                          onClose: _confirmFinishActivity),
+                      RepaintBoundary(
+                        child: SizedBox(
+                          height: mapHeight,
+                          child: Stack(fit: StackFit.expand, children: [
+                            RouteMapWidget(
+                              routePoints:
+                                  widget.route?.coordinates ?? const [],
+                              trackedPoints: _trackedLatLngs,
+                              currentLocation: _currentPosition,
+                              interactive: true,
+                              initialZoom: 15.5,
                             ),
-                            Text(activityName,
-                                style: theme.textTheme.titleSmall),
-                          ],
+                            PositionedDirectional(
+                                start: AppSpacing.md,
+                                end: AppSizes.touchTarget + AppSpacing.xl,
+                                bottom: AppSpacing.sm,
+                                child: Align(
+                                    alignment: AlignmentDirectional.bottomStart,
+                                    child: ColoredBox(
+                                        color: scheme.surface,
+                                        child: Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: AppSpacing.xs),
+                                            child: Text(
+                                                '© OpenStreetMap contributors',
+                                                style: theme
+                                                    .textTheme.labelSmall))))),
+                          ]),
                         ),
                       ),
-                      IconButton(
-                        tooltip: 'Close recording',
-                        icon: const Icon(Icons.close),
-                        onPressed: _confirmFinishActivity,
-                      ),
+                      Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpacing.md),
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                _buildGpsStatus(context),
+                                const SizedBox(height: AppSpacing.lg),
+                                ValueListenableBuilder(
+                                    valueListenable: _metricTick,
+                                    builder: (context, _, __) =>
+                                        _buildMetrics(context, units)),
+                              ])),
                     ],
                   ),
-                ),
-                Expanded(
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      // Size the map from the viewport before entering the scroll view.
-                      final mapHeight =
-                          (constraints.maxHeight * 0.39).clamp(140.0, 290.0);
-                      return SingleChildScrollView(
-                        key: const PageStorageKey('recording-content'),
-                        // The side gutters allow a page swipe alongside the map.
-                        padding: const EdgeInsets.fromLTRB(
-                            AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.lg),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            RepaintBoundary(
-                              child: SizedBox(
-                                height: mapHeight,
-                                child: RouteMapWidget(
-                                  routePoints:
-                                      widget.route?.coordinates ?? const [],
-                                  trackedPoints: _trackedLatLngs,
-                                  currentLocation: _currentPosition,
-                                  interactive: true,
-                                  initialZoom: 15.5,
-                                ),
-                              ),
-                            ),
-                            _buildGpsStatus(context),
-                            const SizedBox(height: AppSpacing.md),
-                            ValueListenableBuilder(
-                              valueListenable: _metricTick,
-                              builder: (context, _, __) =>
-                                  _buildMetrics(context, units),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ],
+                );
+              },
             ),
           ),
         ),
@@ -525,6 +486,7 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen>
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Divider(height: 1, color: _recordingBorder(scheme)),
+                      if (showReminder) reminder,
                       Padding(
                         padding:
                             const EdgeInsets.symmetric(vertical: AppSpacing.sm),
@@ -544,7 +506,7 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen>
                           ),
                           second: _recordingButton(
                             context,
-                            label: 'Finish & Review',
+                            label: 'Finish & review',
                             icon: Icons.stop_outlined,
                             onPressed:
                                 _hasStarted ? _confirmFinishActivity : null,
@@ -576,70 +538,39 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen>
         (!_isPaused && message == null && _lastAcceptedGpsAt == null);
     if (!waiting && message == null) return const SizedBox.shrink();
 
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
     final (title, summary) = switch (message) {
       _backgroundPauseMessage => (
           'Recording paused in the background',
           'Resume when Karipa is open.',
         ),
+      _staleFixMessage => (
+          'Waiting for accurate GPS',
+          'Distance updates when GPS fixes resume.'
+        ),
       _ when waiting => (
           'Waiting for accurate GPS',
-          'Distance will update once GPS accuracy improves.',
+          'Distance updates when accuracy improves.',
         ),
       _ => ('GPS needs attention', message!),
     };
 
-    return Container(
-      margin: const EdgeInsets.only(top: AppSpacing.md),
-      padding: const EdgeInsets.fromLTRB(
-          AppSpacing.md, AppSpacing.md, AppSpacing.md, 0),
-      decoration: BoxDecoration(
-        color: Color.alphaBlend(
-            scheme.onSurface.withValues(alpha: 0.05), scheme.surface),
-        borderRadius: BorderRadius.circular(AppRadii.control),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Semantics(
-            liveRegion: true,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(waiting ? Icons.gps_not_fixed : Icons.info_outline,
-                    color: scheme.onSurfaceVariant, size: AppSizes.compactIcon),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(title, style: theme.textTheme.titleSmall),
-                      const SizedBox(height: AppSpacing.xs),
-                      Text(summary,
-                          style: theme.textTheme.bodySmall
-                              ?.copyWith(color: scheme.onSurfaceVariant)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          _RecordingDisclosure(
-            key: const PageStorageKey('gps-details'),
-            title: 'GPS details',
-            details:
-                '${message == null || message == summary ? '' : '$message\n\n'}'
-                'Only accepted GPS fixes contribute to distance. A calorie estimate requires at least two accepted fixes and measured movement. Calorie availability does not affect the other metrics.',
-          ),
-        ],
-      ),
-    );
+    return Semantics(
+        liveRegion: true,
+        child: _RecordingDisclosure(
+          key: const PageStorageKey('gps-details'),
+          title: title,
+          subtitle: summary,
+          icon: waiting ? Icons.gps_not_fixed : Icons.info_outline,
+          details:
+              '${message == null || message == summary ? '' : '$message\n\n'}'
+              'Only accepted GPS fixes contribute to distance. A calorie estimate requires at least two accepted fixes and measured movement. Calorie availability does not affect the other metrics.',
+        ));
   }
 
   Widget _buildMetrics(BuildContext context, UnitPreferences units) {
-    final theme = Theme.of(context);
-    final muted = theme.colorScheme.onSurfaceVariant;
+    final type = Theme.of(context).textTheme;
+    final divider = Divider(
+        height: 1, color: _recordingBorder(Theme.of(context).colorScheme));
     final calorieResult = _calorieResult;
     final calories = calorieResult.estimate?.calories;
     final calorieDetail = _profileWeightLoadFailed
@@ -647,78 +578,52 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen>
         : calorieResult.unavailableReason;
     final about = _isFreeRecording
         ? 'Free Recording uses GPS observations only, without a predefined route or target distance.'
-        : 'Remaining route distance and finish time are unavailable because route progress is not map-matched.';
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _RecordingPair(
-          minColumnWidth: 138,
-          first: _PrimaryRecordingMetric(
-            label: 'Recorded distance',
-            value: units.distanceFromKm(_traveledDistanceKm).toStringAsFixed(2),
-            unit: units.distanceUnit,
-          ),
-          second: _PrimaryRecordingMetric(
-            label: 'Active time',
-            value: _formattedActiveTime,
-            detail: 'Elapsed ${_formatSeconds(_totalElapsedSeconds)}',
-          ),
-        ),
-        const SizedBox(height: AppSpacing.md),
-        _RecordingPair(
-          minColumnWidth: 138,
-          first: _RecordingMetricCard(
-            label: _isCycling ? 'Speed' : 'Pace',
-            value: _formattedPaceOrSpeed,
-            icon: Icons.speed,
-          ),
-          second: _RecordingMetricCard(
-            label: 'Est. gross calories',
-            value: calories == null
-                ? 'Unavailable'
-                : '${calories.toStringAsFixed(0)} kcal',
-            icon: Icons.local_fire_department_outlined,
-          ),
-        ),
-        if (!_isFreeRecording) ...[
-          const SizedBox(height: AppSpacing.md),
-          _RecordingPair(
-            minColumnWidth: 138,
-            first: const _RecordingMetricCard(
-                label: 'Est. remaining',
-                value: 'Unavailable',
-                icon: Icons.flag_outlined),
-            second: _RecordingMetricCard(
-                label: 'Est. finish',
-                value: _formattedEta,
-                icon: Icons.timelapse),
-          ),
-        ],
-        const SizedBox(height: AppSpacing.md),
-        if (_hasStarted && !_isPaused)
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(Icons.smartphone_outlined, size: 16, color: muted),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                  child: Text('Keep Karipa open while recording.',
-                      style:
-                          theme.textTheme.bodySmall?.copyWith(color: muted))),
-            ],
-          ),
-        _RecordingDisclosure(
+        : 'Route progress is not map-matched.';
+    final distance =
+        units.distanceFromKm(_traveledDistanceKm).toStringAsFixed(2);
+    final time = _formattedActiveTime;
+    final paceAvailable = (_isCycling ? _speedKmh : _paceSecondsPerKm) > 0;
+    final paceLabel = _isCycling ? 'Avg. speed' : 'Avg. pace';
+    final elapsed = _formatSeconds(_totalElapsedSeconds);
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      _RecordingPair(
+          minColumnWidth: time.length > 5 || distance.length > 5 ? 196 : 130,
+          first: _RecordingMetric(
+              label: 'Distance',
+              semanticLabel: 'Recorded distance',
+              value: distance,
+              unit: units.distanceUnit,
+              style: type.displayMedium),
+          second: _RecordingMetric(
+              label: 'Active time', value: time, style: type.headlineLarge)),
+      if (_totalElapsedSeconds != _activeSeconds)
+        Text('Elapsed $elapsed', style: type.bodySmall),
+      const SizedBox(height: AppSpacing.lg),
+      divider,
+      const SizedBox(height: AppSpacing.lg),
+      _RecordingPair(
+          minColumnWidth: 130,
+          first: _RecordingMetric(
+              label: paceLabel,
+              value: paceAvailable ? _formattedPaceOrSpeed : null,
+              style: type.titleLarge),
+          second: _RecordingMetric(
+              label: 'Est. gross calories',
+              value: calories?.toStringAsFixed(0),
+              unit: calories == null ? null : 'kcal',
+              style: type.titleMedium)),
+      const SizedBox(height: AppSpacing.lg),
+      divider,
+      _RecordingDisclosure(
           key: const PageStorageKey('about-recording'),
-          icon: Icons.info_outline,
-          title: _isFreeRecording
-              ? 'About free recording'
-              : 'About route recording',
-          details: '$about\n\n'
-              'MET category examples are provisional and await adviser review. Keep Karipa open. Background tracking and offline synchronization are not supported.'
-              '${calories == null && calorieDetail != null ? '\n\nEstimated gross calories: $calorieDetail' : ''}',
-        ),
-      ],
-    );
+          title: 'Activity details',
+          details: 'Elapsed time: $elapsed (includes pauses).\n\n'
+              'Estimated remaining distance: unavailable. Estimated finish: $_formattedEta. $about\n\n'
+              '${paceAvailable ? '' : "$paceLabel needs at least 50 m of recorded distance and 5 seconds of active time.\n\n"}'
+              'Estimated gross calories use activity intensity (MET), weight and active time. MET category examples are provisional and await adviser review.'
+              '${calories == null && calorieDetail != null ? ' $calorieDetail' : ''}\n\n'
+              'Leaving Karipa pauses recording. Resume manually when the app is open. Background tracking and offline synchronization are not supported.'),
+    ]);
   }
 
   Widget _recordingButton(
@@ -759,6 +664,65 @@ class _ActiveTrackingScreenState extends State<ActiveTrackingScreen>
 
 Color _recordingBorder(ColorScheme scheme) =>
     Color.alphaBlend(scheme.onSurface.withValues(alpha: 0.16), scheme.surface);
+
+class _RecordingHeader extends StatelessWidget {
+  const _RecordingHeader(
+      {required this.activityName,
+      required this.hasStarted,
+      required this.paused,
+      required this.onClose});
+  final String activityName;
+  final bool hasStarted;
+  final bool paused;
+  final VoidCallback onClose;
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: AppSpacing.xs,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.xs,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text(activityName, style: theme.textTheme.titleLarge),
+                Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(paused ? Icons.pause : Icons.circle,
+                      size: paused ? 14 : 8,
+                      color: hasStarted && !paused
+                          ? scheme.primary
+                          : scheme.onSurfaceVariant),
+                  const SizedBox(width: AppSpacing.xs),
+                  Flexible(
+                      child: Text(
+                          !hasStarted
+                              ? 'Ready'
+                              : paused
+                                  ? 'Paused'
+                                  : 'Recording',
+                          style: theme.textTheme.labelMedium
+                              ?.copyWith(color: scheme.onSurfaceVariant))),
+                ]),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Close recording',
+            icon: const Icon(Icons.close),
+            onPressed: onClose,
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _RecordingWidth extends StatelessWidget {
   const _RecordingWidth({
@@ -831,7 +795,7 @@ class _RecordingControls extends StatelessWidget {
               : (constraints.maxWidth - AppSpacing.md) / 2;
           final label = TextPainter(
             text: TextSpan(
-              text: 'Finish & Review',
+              text: 'Finish & review',
               style: Theme.of(context)
                   .textTheme
                   .labelLarge
@@ -866,90 +830,38 @@ class _RecordingControls extends StatelessWidget {
       );
 }
 
-class _PrimaryRecordingMetric extends StatelessWidget {
-  const _PrimaryRecordingMetric({
-    required this.label,
-    required this.value,
-    this.unit,
-    this.detail,
-  });
-
+class _RecordingMetric extends StatelessWidget {
+  const _RecordingMetric(
+      {required this.label,
+      required this.value,
+      required this.style,
+      this.unit,
+      this.semanticLabel});
   final String label;
-  final String value;
+  final String? value;
   final String? unit;
-  final String? detail;
+  final String? semanticLabel;
+  final TextStyle? style;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final muted = theme.colorScheme.onSurfaceVariant;
-    return Column(
-      children: [
-        Text(label,
-            textAlign: TextAlign.center,
-            style: theme.textTheme.labelMedium?.copyWith(color: muted)),
-        const SizedBox(height: AppSpacing.xs),
-        Text.rich(
-          TextSpan(text: value, children: [
-            if (unit != null)
-              TextSpan(
-                  text: ' $unit',
-                  style: theme.textTheme.bodySmall?.copyWith(color: muted)),
-          ]),
-          textAlign: TextAlign.center,
-          style: theme.textTheme.displaySmall?.copyWith(
-            fontFeatures: const [FontFeature.tabularFigures()],
-          ),
-        ),
-        if (detail != null)
-          Text(detail!,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodySmall?.copyWith(color: muted)),
-      ],
-    );
-  }
-}
-
-class _RecordingMetricCard extends StatelessWidget {
-  const _RecordingMetricCard(
-      {required this.label, required this.value, required this.icon});
-
-  final String label;
-  final String value;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: scheme.surface,
-        borderRadius: BorderRadius.circular(AppRadii.control),
-        border: Border.all(color: _recordingBorder(scheme)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.md),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(icon, size: 16, color: scheme.onSurfaceVariant),
-                const SizedBox(width: AppSpacing.xs),
-                Expanded(
-                    child: Text(label,
-                        style: theme.textTheme.bodySmall
-                            ?.copyWith(color: scheme.onSurfaceVariant))),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Text(value, style: theme.textTheme.titleMedium),
-          ],
-        ),
-      ),
-    );
+    final labelStyle = theme.textTheme.labelMedium
+        ?.copyWith(color: theme.colorScheme.onSurfaceVariant);
+    return Semantics(
+        label:
+            '${semanticLabel ?? label}, ${value ?? 'unavailable'}${unit == null ? '' : ' $unit'}',
+        excludeSemantics: true,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(label, style: labelStyle),
+          const SizedBox(height: AppSpacing.xs),
+          Text.rich(
+              TextSpan(text: value ?? '—', children: [
+                if (unit != null) TextSpan(text: ' $unit', style: labelStyle),
+              ]),
+              style: style?.copyWith(
+                  fontFeatures: const [FontFeature.tabularFigures()])),
+        ]));
   }
 }
 
@@ -959,11 +871,13 @@ class _RecordingDisclosure extends StatelessWidget {
     required this.title,
     required this.details,
     this.icon,
+    this.subtitle,
   });
 
   final String title;
   final String details;
   final IconData? icon;
+  final String? subtitle;
 
   @override
   Widget build(BuildContext context) {
@@ -977,15 +891,14 @@ class _RecordingDisclosure extends StatelessWidget {
       iconColor: theme.colorScheme.onSurfaceVariant,
       shape: const Border(),
       collapsedShape: const Border(),
-      title: Row(
-        children: [
-          if (icon != null) ...[
-            Icon(icon, size: 16, color: theme.colorScheme.onSurfaceVariant),
-            const SizedBox(width: AppSpacing.sm),
-          ],
-          Expanded(child: Text(title, style: theme.textTheme.bodySmall)),
-        ],
-      ),
+      expansionAnimationStyle: MediaQuery.disableAnimationsOf(context)
+          ? AnimationStyle.noAnimation
+          : null,
+      leading: icon == null ? null : Icon(icon, size: AppSizes.compactIcon),
+      title: Text(title, style: theme.textTheme.titleSmall),
+      subtitle: subtitle == null
+          ? null
+          : Text(subtitle!, style: theme.textTheme.bodySmall),
       children: [
         Text(details,
             style: theme.textTheme.bodySmall

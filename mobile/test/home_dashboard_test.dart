@@ -67,17 +67,21 @@ Future<void> mountHome(
   double height = 900,
   RouteRecorder? observer,
   bool guest = false,
+  bool imperial = false,
   Brightness brightness = Brightness.light,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = Size(width, height);
-  SharedPreferences.setMockInitialValues(guest
-      ? {'isGuest': true}
-      : {
-          'token': 'test-only-token',
-          'name': 'Alexandria Long Family Name',
-          'userId': 'test-only-user'
-        });
+  SharedPreferences.setMockInitialValues({
+    if (imperial) 'unitSystem': 'imperial',
+    if (guest)
+      'isGuest': true
+    else ...{
+      'token': 'test-only-token',
+      'name': 'Alexandria Long Family Name',
+      'userId': 'test-only-user'
+    },
+  });
   await tester.pumpWidget(MultiProvider(
     providers: [
       ChangeNotifierProvider(create: (_) => AuthService()),
@@ -128,7 +132,7 @@ void resetView(WidgetTester tester) {
 }
 
 void main() {
-  for (final width in [320.0, 360.0, 412.0]) {
+  for (final width in [320.0, 360.0, 390.0, 430.0]) {
     for (final scale in [1.0, 1.5, 2.0]) {
       for (final state in ['populated', 'empty', 'loading']) {
         testWidgets(
@@ -140,14 +144,15 @@ void main() {
             await mountHome(tester, width: width, scale: scale);
             if (state != 'loading') await tester.pumpAndSettle();
             await scrollThroughHome(tester);
-            expect(find.text('Make your\nnext move.'), findsOneWidget);
+            expect(find.text('Make your next move.'), findsOneWidget);
             expect(find.text('Hello, Alexandria Long Family Name'),
                 findsOneWidget);
             final home =
                 tester.widget<HomeDashboard>(find.byType(HomeDashboard));
             expect(home.isLoading, state == 'loading');
             if (state == 'empty') {
-              expect(find.text('Your first move awaits'), findsOneWidget);
+              expect(find.text('Your first activity starts here.'),
+                  findsOneWidget);
             }
             if (state == 'populated') {
               expect(find.byType(HomeRecentActivityCard), findsNWidgets(3));
@@ -222,7 +227,7 @@ void main() {
       await tester.pumpAndSettle();
       await scrollThroughHome(tester);
       expect(find.text('Hello, Guest'), findsOneWidget);
-      expect(find.text('Your first move awaits'), findsOneWidget);
+      expect(find.text('Your first activity starts here.'), findsOneWidget);
       expect(requests, 0);
     },
         () => MockClient((request) async {
@@ -314,7 +319,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.widget<HomeDashboard>(find.byType(HomeDashboard)).isLoading,
           false);
-      expect(find.text('Your first move awaits'), findsOneWidget);
+      expect(find.text('Your first activity starts here.'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
         () => MockClient(
@@ -342,6 +347,54 @@ void main() {
       await expectLater(tester, meetsGuideline(textContrastGuideline));
       expect(tester.getSize(find.byTooltip('Open profile')).shortestSide,
           greaterThanOrEqualTo(AppSizes.touchTarget));
+    } finally {
+      semantics.dispose();
+    }
+  });
+
+  testWidgets('large imperial totals, calorie disclosure and bottom inset fit',
+      (tester) async {
+    resetView(tester);
+    tester.view.padding = const FakeViewPadding(bottom: 34);
+    tester.view.viewPadding = const FakeViewPadding(bottom: 34);
+    addTearDown(tester.view.resetPadding);
+    addTearDown(tester.view.resetViewPadding);
+    final semantics = tester.ensureSemantics();
+    try {
+      await http.runWithClient(() async {
+        await mountHome(tester,
+            width: 320, height: 650, scale: 2, imperial: true);
+        await tester.pumpAndSettle();
+        expect(find.text('123456.0 mi', findRichText: true), findsOneWidget);
+        expect(find.text('10000h 0m', findRichText: true), findsOneWidget);
+        final calories = find.text('Est. calories');
+        await tester.ensureVisible(calories);
+        expect(find.bySemanticsLabel(RegExp('Estimated calories unavailable')),
+            findsWidgets);
+        await tester.tap(calories);
+        await tester.pumpAndSettle();
+        expect(
+            find.textContaining('adviser review is pending'), findsOneWidget);
+        await scrollThroughHome(tester);
+        expect(tester.getRect(find.text('Leaderboard')).bottom,
+            lessThan(650 - 34));
+        expect(
+            find.bySemanticsLabel('Leaderboard').hitTestable(), findsOneWidget);
+        expect(find.text('123456.00 mi'), findsOneWidget);
+      },
+          () => MockClient((request) async => http.Response(
+              jsonEncode({
+                'success': true,
+                'activities': [
+                  {
+                    ...records.first,
+                    'distanceKm': 123456 * 1.609344,
+                    'durationSeconds': 36000000,
+                    'calories': null
+                  },
+                ],
+              }),
+              200)));
     } finally {
       semantics.dispose();
     }

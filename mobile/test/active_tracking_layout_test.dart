@@ -10,6 +10,7 @@ import 'package:flutter_map/flutter_map.dart' show BuiltInMapCachingProvider;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:karipa/models/route_model.dart';
 import 'package:karipa/screens/active_tracking_screen.dart';
 import 'package:karipa/services/unit_preferences.dart';
 import 'package:karipa/theme/app_theme.dart';
@@ -35,7 +36,7 @@ void main() {
       expect(
           tester
               .widget<FilledButton>(
-                  find.widgetWithText(FilledButton, 'Finish & Review'))
+                  find.widgetWithText(FilledButton, 'Finish & review'))
               .onPressed,
           isNull);
       final state = tester.state(find.byType(ActiveTrackingScreen))
@@ -62,6 +63,16 @@ void main() {
     await _withRecording(tester, recordingMode: 'plan_route',
         run: (context) async {
       expect(find.text('Start'), findsNothing);
+      expect(
+          tester
+              .widget<RouteMapWidget>(find.byType(RouteMapWidget))
+              .routePoints,
+          hasLength(2));
+      expect(
+          find.bySemanticsLabel('Recorded distance, 0.00 km'), findsOneWidget);
+      await _tapVisible(tester, find.text('Activity details'));
+      expect(find.textContaining('Route progress is not map-matched.'),
+          findsOneWidget);
       expect(find.text('Pause'), findsOneWidget);
       expect(context.streamStarts, 1);
     });
@@ -100,22 +111,24 @@ void main() {
         activity: activity,
         run: (context) async {
           expect(find.text('Waiting for accurate GPS'), findsOneWidget);
-          expect(find.text(activity == 'cycling' ? 'Speed' : 'Pace'),
+          expect(find.text(activity == 'cycling' ? 'Avg. speed' : 'Avg. pace'),
               findsOneWidget);
           expect(find.text('Est. gross calories'), findsOneWidget);
-          expect(find.text('Unavailable'), findsOneWidget);
+          expect(find.bySemanticsLabel('Est. gross calories, unavailable'),
+              findsOneWidget);
           final map = find.byType(RouteMapWidget);
-          expect(tester.getSize(map).height, inInclusiveRange(140.0, 290.0));
+          expect(tester.getSize(map).height, inInclusiveRange(140.0, 420.0));
           if (height == 320) {
             final mapTop = tester.getTopLeft(map).dy;
             final viewport = tester
                 .getRect(find.byKey(const PageStorageKey('recording-content')));
-            await tester.dragFrom(Offset(viewport.left + 8, viewport.center.dy),
+            await tester.dragFrom(Offset(viewport.left + 4, viewport.center.dy),
                 const Offset(0, -64));
             await tester.pumpAndSettle();
             expect(tester.getTopLeft(map).dy, lessThan(mapTop));
           }
-          final finish = find.widgetWithText(FilledButton, 'Finish & Review');
+          await tester.ensureVisible(find.byTooltip('Close recording'));
+          final finish = find.widgetWithText(FilledButton, 'Finish & review');
           final initialFinishRect = tester.getRect(finish);
           final pauseRect =
               tester.getRect(find.widgetWithText(FilledButton, 'Pause'));
@@ -126,10 +139,10 @@ void main() {
           expect(
               find.byTooltip('Close recording').hitTestable(), findsOneWidget);
 
-          await _tapVisible(tester, find.text('GPS details'));
+          await _tapVisible(tester, find.text('Waiting for accurate GPS'));
           expect(
               find.textContaining('Only accepted GPS fixes'), findsOneWidget);
-          await _tapVisible(tester, find.text('About free recording'));
+          await _tapVisible(tester, find.text('Activity details'));
           expect(
               find.textContaining('offline synchronization'), findsOneWidget);
           expect(tester.getRect(finish), initialFinishRect);
@@ -160,17 +173,18 @@ void main() {
       await tester.pump();
       expect(find.text('Waiting for accurate GPS'), findsNothing);
       expect(tester.widget<RouteMapWidget>(map).trackedPoints, hasLength(2));
-      expect(find.byTooltip('Recenter map'), findsOneWidget);
+      expect(tester.getSize(find.byTooltip('Recenter map')).shortestSide,
+          greaterThanOrEqualTo(48));
 
       await _tapVisible(tester, find.text('Pause'));
       expect(find.text('Paused', findRichText: true), findsOneWidget);
-      await _tapVisible(tester, find.text('Finish & Review'));
+      await _tapVisible(tester, find.text('Finish & review'));
       expect(find.text('Finish recording?'), findsOneWidget);
       await _tapVisible(tester, find.text('Back to activity'));
       expect(find.text('Resume').hitTestable(), findsOneWidget);
       expect(context.review, isNull);
       await _tapVisible(tester, find.text('Resume'));
-      expect(find.text('Tracking live', findRichText: true), findsOneWidget);
+      expect(find.text('Recording', findRichText: true), findsOneWidget);
       await _tapVisible(tester, find.byTooltip('Close recording'));
       expect(find.byType(AlertDialog), findsOneWidget);
       await tester.tapAt(const Offset(2, 2));
@@ -179,9 +193,12 @@ void main() {
       await _tapVisible(tester, find.text('Back to activity'));
       expect(find.byType(AlertDialog), findsNothing);
       expect(find.text('Pause').hitTestable(), findsOneWidget);
-      await _tapVisible(tester, find.text('Finish & Review'));
+      await _tapVisible(tester, find.text('Finish & review'));
       await _tapVisible(
-          tester, find.widgetWithText(FilledButton, 'Finish & review'));
+          tester,
+          find.descendant(
+              of: find.byType(AlertDialog),
+              matching: find.widgetWithText(FilledButton, 'Finish & review')));
       expect(find.text('Recording review fixture'), findsOneWidget);
       expect(context.review?.name, '/activity_complete');
       final result = context.review?.arguments as Map;
@@ -217,7 +234,8 @@ void main() {
   testWidgets('accepted movement can show pace and a gross calorie estimate',
       (tester) async {
     await _withRecording(tester, hasProfileWeight: true, run: (context) async {
-      expect(find.text('Unavailable'), findsOneWidget);
+      expect(find.bySemanticsLabel('Est. gross calories, unavailable'),
+          findsOneWidget);
       // The recorder's Stopwatch measures wall time independently of frame time.
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(seconds: 5)),
@@ -226,9 +244,10 @@ void main() {
       await tester.pump();
       context.fix(latitude: 14.6000, accuracy: 5, secondsAgo: 1);
       await tester.pump();
-      expect(find.textContaining(' kcal'), findsOneWidget);
-      expect(find.text('Unavailable'), findsNothing);
-      expect(find.text('--:-- /km'), findsNothing);
+      expect(find.textContaining(' kcal', findRichText: true), findsOneWidget);
+      expect(find.bySemanticsLabel('Est. gross calories, unavailable'),
+          findsNothing);
+      expect(find.bySemanticsLabel('Avg. pace, unavailable'), findsNothing);
       expect(tester.takeException(), isNull);
     });
   });
@@ -371,7 +390,19 @@ Future<void> _withRecording(
             child: child!,
           ),
           home: ActiveTrackingScreen(
-              activity: activity, recordingMode: recordingMode),
+              route: recordingMode == 'plan_route'
+                  ? PathRoute.fromJson({
+                      'distanceKm': 4.0,
+                      'geometry': {
+                        'coordinates': [
+                          [120.984, 14.599],
+                          [120.984, 14.600]
+                        ]
+                      }
+                    })
+                  : null,
+              activity: activity,
+              recordingMode: recordingMode),
           onGenerateRoute: (settings) {
             fixture.review = settings;
             return MaterialPageRoute<void>(

@@ -57,9 +57,18 @@ class _ActivitySelectionScreenState extends State<ActivitySelectionScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final margin = AppSpacing.pageMargin(MediaQuery.sizeOf(context).width);
+    final scheme = theme.colorScheme;
+    final shortScreen = MediaQuery.sizeOf(context).height < 500;
+    final canvas = theme.brightness == Brightness.light
+        ? Color.alphaBlend(
+            scheme.surfaceContainer.withValues(alpha: 0.24), scheme.surface)
+        : scheme.surface;
     return Scaffold(
-      appBar: AppBar(title: const Text('Choose Activity')),
+      backgroundColor: canvas,
+      appBar:
+          AppBar(title: const Text('Start activity'), backgroundColor: canvas),
       body: SafeArea(
+        top: false,
         bottom: false,
         child: SingleChildScrollView(
           padding: EdgeInsets.all(margin),
@@ -70,15 +79,27 @@ class _ActivitySelectionScreenState extends State<ActivitySelectionScreen> {
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Semantics(
-                        header: true,
-                        child: Text("What's your next move?",
-                            style: theme.textTheme.headlineSmall)),
-                    const SizedBox(height: AppSpacing.sm),
-                    Text('Select an activity and how you want to record it.',
-                        style: theme.textTheme.bodyLarge?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant)),
-                    const SizedBox(height: AppSpacing.xl),
+                    Container(
+                        padding: const EdgeInsets.all(AppSpacing.lg),
+                        decoration: BoxDecoration(
+                            color: KaripaPalette.navy,
+                            borderRadius:
+                                BorderRadius.circular(AppRadii.panel)),
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Semantics(
+                                  header: true,
+                                  child: Text("What's your next move?",
+                                      style: theme.textTheme.headlineSmall
+                                          ?.copyWith(
+                                              color: KaripaPalette.white))),
+                              const SizedBox(height: AppSpacing.sm),
+                              Text('Choose an activity and recording mode.',
+                                  style: theme.textTheme.bodyMedium
+                                      ?.copyWith(color: KaripaPalette.ivory)),
+                            ])),
+                    const SizedBox(height: AppSpacing.lg),
                     for (int row = 0; row < 2; row++) ...[
                       if (row > 0) const SizedBox(height: AppSpacing.md),
                       IntrinsicHeight(
@@ -110,15 +131,11 @@ class _ActivitySelectionScreenState extends State<ActivitySelectionScreen> {
                         header: true,
                         child: Text('Recording mode',
                             style: theme.textTheme.titleLarge)),
-                    const SizedBox(height: AppSpacing.sm),
-                    Text('Choose how you want to record your activity.',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant)),
                     const SizedBox(height: AppSpacing.lg),
                     _RecordingModeOption(
                       title: 'Plan a route',
                       description:
-                          'Generate a route based on your target distance.',
+                          'Generate a route around your target distance.',
                       icon: Icons.route_outlined,
                       selected: _mode == _RecordingMode.planRoute,
                       onTap: _isNavigating
@@ -131,8 +148,7 @@ class _ActivitySelectionScreenState extends State<ActivitySelectionScreen> {
                     const SizedBox(height: AppSpacing.md),
                     _RecordingModeOption(
                       title: 'Free recording',
-                      description:
-                          'Record your activity without a predefined route.',
+                      description: 'Track freely without a planned route.',
                       icon: Icons.my_location_outlined,
                       selected: _mode == _RecordingMode.freeRecording,
                       onTap: _isNavigating
@@ -159,8 +175,11 @@ class _ActivitySelectionScreenState extends State<ActivitySelectionScreen> {
       bottomNavigationBar: SafeArea(
         top: false,
         child: Padding(
-          padding:
-              EdgeInsets.fromLTRB(margin, AppSpacing.md, margin, AppSpacing.lg),
+          padding: EdgeInsets.fromLTRB(
+              margin,
+              shortScreen ? AppSpacing.xs : AppSpacing.md,
+              margin,
+              shortScreen ? AppSpacing.xs : AppSpacing.lg),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             ConstrainedBox(
               constraints:
@@ -169,11 +188,9 @@ class _ActivitySelectionScreenState extends State<ActivitySelectionScreen> {
                   width: double.infinity,
                   child: KaripaButton(
                     label: _mode == _RecordingMode.planRoute
-                        ? 'Continue to Route Planning'
-                        : 'Start Free Recording',
-                    icon: _mode == _RecordingMode.planRoute
-                        ? Icons.arrow_forward
-                        : Icons.play_arrow,
+                        ? 'Continue to route planning'
+                        : 'Continue to free recording',
+                    icon: shortScreen ? null : Icons.arrow_forward,
                     isLoading: _isNavigating,
                     onPressed: _isNavigating ? null : _continue,
                   )),
@@ -202,10 +219,6 @@ class _RecordingModeOption extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final shape = RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadii.panel),
-        side: BorderSide(
-            color: selected ? scheme.primary : scheme.outlineVariant));
     return Semantics(
       label: '$title. $description',
       checked: selected,
@@ -213,39 +226,33 @@ class _RecordingModeOption extends StatelessWidget {
       enabled: onTap != null,
       onTap: onTap,
       child: ExcludeSemantics(
-          child: Material(
-        color: selected
-            ? Color.alphaBlend(
-                scheme.primary.withValues(alpha: 0.08), scheme.surface)
-            : scheme.surface,
-        shape: shape,
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          customBorder: shape,
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Icon(icon, color: scheme.onSurface),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(
-                  child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                    Text(title, style: theme.textTheme.titleMedium),
-                    const SizedBox(height: AppSpacing.xs),
-                    Text(description,
-                        style: theme.textTheme.bodyMedium
-                            ?.copyWith(color: scheme.onSurfaceVariant)),
-                  ])),
-              const SizedBox(width: AppSpacing.sm),
-              Icon(
-                  selected
-                      ? Icons.radio_button_checked
-                      : Icons.radio_button_unchecked,
-                  color: scheme.onSurface),
-            ]),
-          ),
+          child: ActivitySelectionSurface(
+        selected: selected,
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                    color: scheme.surfaceContainer,
+                    borderRadius: BorderRadius.circular(AppRadii.control)),
+                child: Icon(icon, size: 24, color: scheme.onSurface)),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                  Text(title, style: theme.textTheme.titleMedium),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(description,
+                      style: theme.textTheme.bodyMedium
+                          ?.copyWith(color: scheme.onSurfaceVariant)),
+                ])),
+            const SizedBox(width: AppSpacing.sm),
+            ActivitySelectionIndicator(selected: selected),
+          ]),
         ),
       )),
     );

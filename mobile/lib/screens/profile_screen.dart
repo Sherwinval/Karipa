@@ -312,321 +312,219 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _syncControllersToDraft(units);
     }
 
+    final pageColor = theme.brightness == Brightness.light
+        ? Color.alphaBlend(colorScheme.surfaceContainer.withValues(alpha: 0.24),
+            colorScheme.surface)
+        : colorScheme.surface;
+    final headerInset =
+        AppSpacing.pageMargin(MediaQuery.sizeOf(context).width) - AppSpacing.sm;
+
     return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
+      backgroundColor: pageColor,
       appBar: AppBar(
-        title: const Text('My Profile',
+        title: const Text('Profile',
             style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor:
-            theme.appBarTheme.backgroundColor ?? colorScheme.surface,
+        backgroundColor: pageColor,
         elevation: 0,
       ),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(20.0),
-          children: [
-            // User Avatar & Name Card
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: theme.cardTheme.color ?? colorScheme.surface,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                    color: theme.dividerColor.withValues(alpha: 0.1)),
-                boxShadow: [
-                  BoxShadow(
-                      color: KaripaPalette.midnight.withValues(alpha: 0.05),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4)),
-                ],
-              ),
-              child: Column(
-                children: [
-                  Tooltip(
-                    message: 'Change profile photo',
-                    child: GestureDetector(
-                      onTap: authService.isAuthenticated && !_photoSaving
-                          ? _changeProfilePhoto
-                          : null,
-                      child: Stack(
-                        children: [
-                          Container(
-                            width: 80,
-                            height: 80,
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                colors: [
-                                  KaripaPalette.coral,
-                                  KaripaPalette.coral
-                                ],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
-                              shape: BoxShape.circle,
-                              image: _profilePhotoBytes == null
-                                  ? null
-                                  : DecorationImage(
-                                      image: MemoryImage(_profilePhotoBytes!),
-                                      fit: BoxFit.cover,
-                                    ),
-                            ),
-                            child: _profilePhotoBytes == null
-                                ? const Icon(Icons.person,
-                                    size: 44, color: KaripaPalette.midnight)
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.sm, vertical: AppSpacing.lg),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Padding(
+                padding: EdgeInsets.symmetric(horizontal: headerInset),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Semantics(
+                      button: authService.isAuthenticated,
+                      label: _photoSaving
+                          ? 'Saving profile photo'
+                          : 'Change profile photo',
+                      child: Tooltip(
+                          message: 'Change profile photo',
+                          child: InkWell(
+                            onTap: authService.isAuthenticated && !_photoSaving
+                                ? _changeProfilePhoto
                                 : null,
-                          ),
+                            customBorder: const CircleBorder(),
+                            child: SizedBox(
+                                width: 72,
+                                height: 72,
+                                child: Stack(children: [
+                                  Container(
+                                      width: 72,
+                                      height: 72,
+                                      decoration: BoxDecoration(
+                                          color: colorScheme.surfaceContainer,
+                                          shape: BoxShape.circle,
+                                          image: _profilePhotoBytes == null
+                                              ? null
+                                              : DecorationImage(
+                                                  image: MemoryImage(
+                                                      _profilePhotoBytes!),
+                                                  fit: BoxFit.cover)),
+                                      child: _profilePhotoBytes == null
+                                          ? Icon(Icons.person_outline,
+                                              size: 36,
+                                              color:
+                                                  colorScheme.onSurfaceVariant)
+                                          : null),
+                                  if (authService.isAuthenticated)
+                                    Positioned(
+                                        right: 0,
+                                        bottom: 0,
+                                        child: CircleAvatar(
+                                            radius: 14,
+                                            backgroundColor:
+                                                colorScheme.surfaceContainer,
+                                            child: _photoSaving
+                                                ? const SizedBox(
+                                                    width: 16,
+                                                    height: 16,
+                                                    child:
+                                                        CircularProgressIndicator(
+                                                            strokeWidth: 2))
+                                                : Icon(
+                                                    Icons.camera_alt_outlined,
+                                                    size: 16,
+                                                    color: colorScheme
+                                                        .onSurface))),
+                                ])),
+                          )),
+                    ),
+                    const SizedBox(width: AppSpacing.lg),
+                    Expanded(
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                          Text(
+                              authService.isGuest
+                                  ? 'Guest'
+                                  : (authService.name ?? 'Karipa Athlete'),
+                              style: theme.textTheme.titleLarge),
+                          const SizedBox(height: AppSpacing.xs),
+                          Text(
+                              authService.isAuthenticated
+                                  ? 'Signed in'
+                                  : 'Guest account',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                  color: colorScheme.onSurfaceVariant)),
                           if (authService.isAuthenticated)
-                            Positioned(
-                              right: 0,
-                              bottom: 0,
-                              child: CircleAvatar(
-                                radius: 15,
-                                backgroundColor: KaripaPalette.coral,
-                                child: _photoSaving
-                                    ? const SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(
-                                            strokeWidth: 2),
-                                      )
-                                    : const Icon(Icons.camera_alt,
-                                        size: 16,
-                                        color: KaripaPalette.midnight),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Flexible(
-                        child: Text(
-                          authService.isGuest
-                              ? 'Guest Runner'
-                              : (authService.name ?? 'Karipa Athlete'),
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                            color: Theme.of(context).colorScheme.onSurface,
-                          ),
-                        ),
-                      ),
-                      if (authService.isAuthenticated)
-                        IconButton(
-                          tooltip: 'Edit profile name',
-                          onPressed: () => _editProfileName(authService),
-                          icon: const Icon(Icons.edit_outlined, size: 18),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    authService.isAuthenticated
-                        ? 'Verified Runner Account'
-                        : 'Guest Account',
-                    style: TextStyle(
-                        fontSize: 13,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant),
-                  ),
-                  if (authService.isGuest) ...[
-                    const SizedBox(height: 16),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.surfaceContainer,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                            color: Theme.of(context).colorScheme.outline),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.info_outline,
-                              color: Theme.of(context).colorScheme.onSurface,
-                              size: 22),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Guest Mode Active',
-                                  style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13,
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onSurface),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  'Sign in to sync your fitness activities and save routes.',
-                                  style: TextStyle(
-                                      fontSize: 12,
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onSurfaceVariant),
-                                ),
-                              ],
-                            ),
-                          ),
-                          TextButton(
-                            onPressed: () {
-                              authService.logout();
-                              Navigator.pushNamedAndRemoveUntil(
-                                  context, '/login', (route) => false);
-                            },
-                            child: Text('Sign In',
-                                style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onSurface)),
-                          ),
-                        ],
-                      ),
-                    ),
+                            TextButton(
+                                onPressed: () => _editProfileName(authService),
+                                child: const Text('Edit name')),
+                          if (authService.isGuest)
+                            TextButton(
+                                onPressed: () {
+                                  authService.logout();
+                                  Navigator.pushNamedAndRemoveUntil(
+                                      context, '/login', (route) => false);
+                                },
+                                child: const Text('Sign In')),
+                        ])),
                   ],
-                ],
-              ),
-            ),
+                )),
+            const SizedBox(height: AppSpacing.xl),
+
+            _ProfileSurface(
+                child: _buildMeasurementsSection(
+                    authService, theme, colorScheme, units)),
+            const SizedBox(height: 20),
+            _ProfileSurface(
+                child: _buildUnitSystemSection(units, theme, colorScheme)),
             const SizedBox(height: 20),
 
-            _buildMeasurementsSection(authService, theme, colorScheme, units),
-            const SizedBox(height: 20),
-            _buildUnitSystemSection(units, theme, colorScheme),
-            const SizedBox(height: 20),
-
-            // Actions List
-            Ink(
-              decoration: BoxDecoration(
-                color: theme.cardTheme.color ?? colorScheme.surface,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                    color: theme.dividerColor.withValues(alpha: 0.1)),
-              ),
-              child: Column(
-                children: [
+            _ProfileSurface(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                  Text('Activity & account',
+                      style: theme.textTheme.titleMedium),
+                  const SizedBox(height: AppSpacing.sm),
                   ListTile(
-                    leading: Icon(Icons.history,
-                        color: Theme.of(context).colorScheme.onSurface),
-                    title: const Text('Activity History',
-                        style: TextStyle(fontWeight: FontWeight.w600)),
-                    trailing: Icon(Icons.chevron_right,
-                        color: Theme.of(context).colorScheme.onSurface),
-                    onTap: () =>
-                        Navigator.pushNamed(context, '/activity_history'),
-                  ),
-                  const Divider(height: 1),
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.history),
+                      title: const Text('Activity History'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () =>
+                          Navigator.pushNamed(context, '/activity_history')),
+                  Divider(
+                      height: 1,
+                      indent: AppSizes.icon + AppSpacing.xxl,
+                      color: colorScheme.onSurface.withValues(alpha: 0.12)),
                   ListTile(
-                    leading: Icon(Icons.security,
-                        color: Theme.of(context).colorScheme.onSurface),
-                    title: const Text('Account Security',
-                        style: TextStyle(fontWeight: FontWeight.w600)),
-                    subtitle: Text(
-                      authService.isAuthenticated
-                          ? 'JWT Authenticated & Protected'
-                          : 'Unauthenticated Guest Session',
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    trailing: Icon(
-                      authService.isAuthenticated
-                          ? Icons.check_circle
-                          : Icons.shield_outlined,
-                      color: authService.isAuthenticated
-                          ? Theme.of(context).colorScheme.onSurface
-                          : Theme.of(context).colorScheme.onSurface,
-                      size: 18,
-                    ),
-                  ),
-                  const Divider(height: 1),
-                  Consumer<ThemeService>(
-                    builder: (context, themeService, _) {
-                      return SwitchListTile(
-                        secondary: Icon(Icons.dark_mode,
-                            color: Theme.of(context).colorScheme.onSurface),
-                        title: const Text('Dark Mode',
-                            style: TextStyle(fontWeight: FontWeight.w600)),
-                        value: themeService.isDarkMode,
-                        onChanged: (value) {
-                          themeService.toggleTheme(value);
-                        },
-                      );
-                    },
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    leading: Icon(Icons.info_outline,
-                        color: Theme.of(context).colorScheme.onSurface),
-                    title: const Text('About Karipa',
-                        style: TextStyle(fontWeight: FontWeight.w600)),
-                    subtitle: const Text('v1.0.0 • AI-Driven Routing Engine',
-                        style: TextStyle(fontSize: 12)),
-                  ),
-                ],
-              ),
-            ),
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.person_outline),
+                      title: const Text('Account status'),
+                      subtitle: Text(authService.isAuthenticated
+                          ? 'Signed in'
+                          : 'Guest session')),
+                  Divider(
+                      height: 1,
+                      indent: AppSizes.icon + AppSpacing.xxl,
+                      color: colorScheme.onSurface.withValues(alpha: 0.12)),
+                  const ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.info_outline),
+                      title: Text('About Karipa'),
+                      subtitle: Text('v1.0.0')),
+                ])),
             const SizedBox(height: 24),
 
             // Logout / Exit Button
-            ElevatedButton.icon(
-              onPressed: () async {
-                final confirm = await showDialog<bool>(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: Text(
-                        authService.isGuest ? 'Exit Guest Mode?' : 'Log Out?'),
-                    content: Text(authService.isGuest
-                        ? 'Are you sure you want to exit guest mode and return to sign in?'
-                        : 'Are you sure you want to sign out of Karipa?'),
-                    actions: [
-                      TextButton(
-                          onPressed: () => Navigator.pop(ctx, false),
-                          child: const Text('Cancel')),
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                            backgroundColor: KaripaPalette.coral,
-                            foregroundColor: KaripaPalette.midnight),
-                        onPressed: () => Navigator.pop(ctx, true),
-                        child: Text(authService.isGuest
-                            ? 'Exit Guest Mode'
-                            : 'Log Out'),
+            Padding(
+                padding: EdgeInsets.symmetric(horizontal: headerInset),
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    final confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: Text(authService.isGuest
+                            ? 'Exit Guest Mode?'
+                            : 'Log Out?'),
+                        content: Text(authService.isGuest
+                            ? 'Are you sure you want to exit guest mode and return to sign in?'
+                            : 'Are you sure you want to sign out of Karipa?'),
+                        actions: [
+                          TextButton(
+                              onPressed: () => Navigator.pop(ctx, false),
+                              child: const Text('Cancel')),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                                backgroundColor: KaripaPalette.coral,
+                                foregroundColor: KaripaPalette.midnight),
+                            onPressed: () => Navigator.pop(ctx, true),
+                            child: Text(authService.isGuest
+                                ? 'Exit Guest Mode'
+                                : 'Log Out'),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                );
+                    );
 
-                if (confirm == true) {
-                  await authService.logout();
-                  if (context.mounted) {
-                    Navigator.pushNamedAndRemoveUntil(
-                        context, '/login', (route) => false);
-                  }
-                }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: KaripaPalette.coral,
-                foregroundColor: KaripaPalette.midnight,
-                elevation: 0,
-                minimumSize: const Size.fromHeight(52),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  side:
-                      BorderSide(color: Theme.of(context).colorScheme.outline),
-                ),
-              ),
-              icon: const Icon(Icons.logout, size: 20),
-              label: Text(
-                authService.isGuest ? 'Exit Guest Mode' : 'Sign Out',
-                style:
-                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-              ),
-            ),
-          ],
+                    if (confirm == true) {
+                      await authService.logout();
+                      if (context.mounted) {
+                        Navigator.pushNamedAndRemoveUntil(
+                            context, '/login', (route) => false);
+                      }
+                    }
+                  },
+                  style: OutlinedButton.styleFrom(
+                      foregroundColor: colorScheme.onSurface,
+                      minimumSize: const Size.fromHeight(AppSizes.buttonHeight),
+                      side: BorderSide(color: colorScheme.outlineVariant)),
+                  icon: const Icon(Icons.logout, size: 20),
+                  label: Text(
+                    authService.isGuest ? 'Exit Guest Mode' : 'Sign Out',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 15),
+                  ),
+                )),
+          ]),
         ),
       ),
     );
@@ -637,52 +535,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
     ThemeData theme,
     ColorScheme colorScheme,
   ) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: theme.cardTheme.color ?? colorScheme.surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.1)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Measurement Units',
-              style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: colorScheme.onSurface)),
-          const SizedBox(height: 4),
-          Text(
-            'Choose how distances and profile measurements are displayed. Saved values remain unchanged.',
-            style: TextStyle(fontSize: 13, color: colorScheme.onSurfaceVariant),
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Text('Preferences', style: theme.textTheme.titleMedium),
+      const SizedBox(height: AppSpacing.md),
+      Text('Units', style: theme.textTheme.labelLarge),
+      const SizedBox(height: AppSpacing.xs),
+      Text('${units.distanceUnit} · ${units.heightUnit} · ${units.weightUnit}',
+          style: theme.textTheme.bodySmall
+              ?.copyWith(color: colorScheme.onSurfaceVariant)),
+      const SizedBox(height: AppSpacing.md),
+      LayoutBuilder(builder: (context, constraints) {
+        final vertical = constraints.maxWidth < 340 &&
+            MediaQuery.textScalerOf(context).scale(14) > 18;
+        return SegmentedButton<UnitSystem>(
+          style: const ButtonStyle(
+            minimumSize: WidgetStatePropertyAll(Size(48, 48)),
           ),
-          const SizedBox(height: 8),
-          SegmentedButton<UnitSystem>(
-            segments: const [
-              ButtonSegment(
-                  value: UnitSystem.metric,
-                  label: Text('Metric'),
-                  icon: Icon(Icons.straighten)),
-              ButtonSegment(
-                  value: UnitSystem.imperial,
-                  label: Text('Imperial'),
-                  icon: Icon(Icons.swap_horiz)),
-            ],
-            selected: {units.system},
-            onSelectionChanged: (selection) =>
-                _changeUnitSystem(selection.first),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            units.isImperial
-                ? 'Distance: miles • Height: decimal feet • Weight: pounds'
-                : 'Distance: kilometers • Height: centimeters • Weight: kilograms',
-            style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
-          ),
-        ],
-      ),
-    );
+          direction: vertical ? Axis.vertical : Axis.horizontal,
+          segments: const [
+            ButtonSegment(value: UnitSystem.metric, label: Text('Metric')),
+            ButtonSegment(value: UnitSystem.imperial, label: Text('Imperial')),
+          ],
+          selected: {units.system},
+          onSelectionChanged: (selection) => _changeUnitSystem(selection.first),
+        );
+      }),
+      const _ProfileDisclosure(
+          title: 'About display units',
+          details:
+              'Choose how distances and profile measurements are displayed. Saved values remain unchanged. Imperial height is shown in decimal feet.'),
+      Consumer<ThemeService>(
+          builder: (context, themeService, _) => SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              secondary: const Icon(Icons.dark_mode_outlined),
+              title: const Text('Dark mode'),
+              value: themeService.isDarkMode,
+              onChanged: themeService.toggleTheme)),
+    ]);
   }
 
   Widget _buildMeasurementsSection(
@@ -691,50 +580,64 @@ class _ProfileScreenState extends State<ProfileScreen> {
     ColorScheme colorScheme,
     UnitPreferences units,
   ) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: theme.cardTheme.color ?? colorScheme.surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.1)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Optional Measurements',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: colorScheme.onSurface,
-              )),
-          const SizedBox(height: 8),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: AppSpacing.sm,
+            children: [
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Body measurements', style: theme.textTheme.titleMedium),
+                Text('Optional',
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: colorScheme.onSurfaceVariant)),
+              ]),
+              if (authService.isAuthenticated &&
+                  _profileLoaded &&
+                  !_isEditingMeasurements)
+                TextButton(
+                    onPressed: _profileSaving
+                        ? null
+                        : () => setState(() {
+                              _profileError = null;
+                              _isEditingMeasurements = true;
+                            }),
+                    child: const Text('Edit')),
+            ]),
+        const SizedBox(height: AppSpacing.md),
+        if (!authService.isAuthenticated) ...[
+          const _MeasurementSummary(height: 'Not set', weight: 'Not set'),
+          const SizedBox(height: 12),
           Text(
-            'These measurements are optional. Weight supports provisional gross session calorie estimates using the published MET examples; adviser review is pending. Height is not used in the current calorie equation. Route planning and activity tracking work without them.',
+            'Sign in to save measurements to your account. You can still plan routes and track activities without them.',
             style: TextStyle(fontSize: 13, color: colorScheme.onSurfaceVariant),
           ),
-          if (!authService.isAuthenticated) ...[
-            const SizedBox(height: 12),
-            Text(
-              'Sign in to save measurements to your account. You can still plan routes and track activities without them.',
-              style:
-                  TextStyle(fontSize: 13, color: colorScheme.onSurfaceVariant),
-            ),
-          ] else if (_profileLoading) ...[
-            const SizedBox(height: 16),
-            const Center(child: CircularProgressIndicator()),
-          ] else if (!_profileLoaded) ...[
-            if (_profileError != null) ...[
-              const SizedBox(height: 10),
-              Text(_profileError!,
-                  style: TextStyle(color: colorScheme.error, fontSize: 13)),
-            ],
-            const SizedBox(height: 8),
-            OutlinedButton(
-              onPressed: _profileLoading ? null : _loadMeasurements,
-              child: const Text('Retry loading measurements'),
-            ),
-          ] else ...[
-            const SizedBox(height: 16),
+        ] else if (_profileLoading) ...[
+          const SizedBox(height: 16),
+          const Center(child: CircularProgressIndicator()),
+        ] else if (!_profileLoaded) ...[
+          if (_profileError != null) ...[
+            const SizedBox(height: 10),
+            Text(_profileError!,
+                style: TextStyle(color: colorScheme.error, fontSize: 13)),
+          ],
+          const SizedBox(height: 8),
+          OutlinedButton(
+            onPressed: _profileLoading ? null : _loadMeasurements,
+            child: const Text('Retry loading measurements'),
+          ),
+        ] else ...[
+          if (!_isEditingMeasurements)
+            _MeasurementSummary(
+                height: _heightController.text.isEmpty
+                    ? 'Not set'
+                    : '${_heightController.text} ${units.heightUnit}',
+                weight: _weightController.text.isEmpty
+                    ? 'Not set'
+                    : '${_weightController.text} ${units.weightUnit}')
+          else
             Form(
               key: _profileFormKey,
               child: Column(
@@ -785,73 +688,91 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ],
               ),
             ),
-            if (_profileError != null) ...[
-              const SizedBox(height: 10),
-              Text(_profileError!,
-                  style: TextStyle(color: colorScheme.error, fontSize: 13)),
-            ],
-            const SizedBox(height: 12),
-            if (_isEditingMeasurements)
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: _profileSaving
-                          ? null
-                          : () {
-                              _draftHeightCm = double.tryParse(_savedHeight);
-                              _draftWeightKg = double.tryParse(_savedWeight);
-                              final units = context.read<UnitPreferences>();
-                              _syncControllersToDraft(units);
-                              setState(() {
-                                _profileError = null;
-                                _isEditingMeasurements = false;
-                              });
-                            },
-                      child: const Text('Cancel'),
-                    ),
+          if (_profileError != null) ...[
+            const SizedBox(height: 10),
+            Text(_profileError!,
+                style: TextStyle(color: colorScheme.error, fontSize: 13)),
+          ],
+          const SizedBox(height: 12),
+          if (_isEditingMeasurements) ...[
+            LayoutBuilder(builder: (context, constraints) {
+              final cancel = OutlinedButton(
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(0, AppSizes.buttonHeight),
+                  side: BorderSide(
+                      color: colorScheme.outline.withValues(alpha: 0.35)),
+                ),
+                onPressed: _profileSaving
+                    ? null
+                    : () {
+                        _draftHeightCm = double.tryParse(_savedHeight);
+                        _draftWeightKg = double.tryParse(_savedWeight);
+                        final units = context.read<UnitPreferences>();
+                        _syncControllersToDraft(units);
+                        setState(() {
+                          _profileError = null;
+                          _isEditingMeasurements = false;
+                        });
+                      },
+                child: const Text('Cancel'),
+              );
+              final save = FilledButton(
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(0, AppSizes.buttonHeight),
+                  elevation: 0,
+                ),
+                onPressed: _profileSaving ? null : _saveMeasurements,
+                child: _profileSaving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Save'),
+              );
+              if (constraints.maxWidth <
+                  240 * MediaQuery.textScalerOf(context).scale(14) / 14) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    cancel,
+                    const SizedBox(height: AppSpacing.sm),
+                    save,
+                  ],
+                );
+              }
+              return Row(children: [
+                Expanded(child: cancel),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(child: save),
+              ]);
+            }),
+            const SizedBox(height: AppSpacing.xs),
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: TextButton(
+                  style: TextButton.styleFrom(
+                    foregroundColor: colorScheme.onSurfaceVariant,
+                    textStyle: theme.textTheme.labelMedium,
+                    minimumSize:
+                        const Size(AppSizes.touchTarget, AppSizes.touchTarget),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: _profileSaving ? null : _saveMeasurements,
-                      child: _profileSaving
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text('Save'),
-                    ),
-                  ),
-                ],
-              )
-            else
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: _profileSaving
-                          ? null
-                          : () => setState(() {
-                                _profileError = null;
-                                _isEditingMeasurements = true;
-                              }),
-                      child: const Text('Edit'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: _profileSaving ? null : _clearMeasurements,
-                      child: const Text('Clear values'),
-                    ),
-                  ),
-                ],
-              ),
+                  onPressed: _profileSaving ? null : _clearMeasurements,
+                  child: const Text('Clear values')),
+            ),
           ],
         ],
-      ),
+        const SizedBox(height: AppSpacing.sm),
+        Text('Weight supports eligible calorie estimates.',
+            style: theme.textTheme.bodySmall
+                ?.copyWith(color: colorScheme.onSurfaceVariant)),
+        const _ProfileDisclosure(
+            title: 'How measurements are used',
+            details:
+                'These measurements are optional. Weight supports provisional gross session calorie estimates using the published MET examples; adviser review is pending. Height is not used in the current calorie equation. Route planning and activity tracking work without them.'),
+      ],
     );
   }
 
@@ -871,6 +792,83 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
     return null;
   }
+}
+
+class _ProfileSurface extends StatelessWidget {
+  const _ProfileSurface({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Material(
+      color: theme.brightness == Brightness.light
+          ? scheme.surface
+          : scheme.surfaceContainer,
+      borderRadius: BorderRadius.circular(AppRadii.panel),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        child: child,
+      ),
+    );
+  }
+}
+
+class _MeasurementSummary extends StatelessWidget {
+  const _MeasurementSummary({required this.height, required this.weight});
+  final String height;
+  final String weight;
+  @override
+  Widget build(BuildContext context) {
+    Widget metric(String label, String value) =>
+        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(label, style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: AppSpacing.xs),
+          Text(value,
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontFeatures: const [FontFeature.tabularFigures()])),
+        ]);
+    return LayoutBuilder(builder: (context, constraints) {
+      if (constraints.maxWidth < 340 &&
+          MediaQuery.textScalerOf(context).scale(14) > 18) {
+        return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          metric('Height', height),
+          const SizedBox(height: AppSpacing.md),
+          metric('Weight', weight)
+        ]);
+      }
+      return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Expanded(child: metric('Height', height)),
+        const SizedBox(width: AppSpacing.lg),
+        Expanded(child: metric('Weight', weight))
+      ]);
+    });
+  }
+}
+
+class _ProfileDisclosure extends StatelessWidget {
+  const _ProfileDisclosure({required this.title, required this.details});
+  final String title;
+  final String details;
+  @override
+  Widget build(BuildContext context) => ExpansionTile(
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: const EdgeInsets.only(bottom: AppSpacing.md),
+        shape: const Border(),
+        collapsedShape: const Border(),
+        minTileHeight: AppSizes.touchTarget,
+        expansionAnimationStyle: MediaQuery.disableAnimationsOf(context)
+            ? AnimationStyle.noAnimation
+            : null,
+        title: Text(title, style: Theme.of(context).textTheme.bodySmall),
+        children: [
+          Text(details,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant))
+        ],
+      );
 }
 
 class _EditProfileNameDialog extends StatefulWidget {
